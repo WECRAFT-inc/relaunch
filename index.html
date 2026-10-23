@@ -227,12 +227,12 @@ function route(){const r=(location.hash.replace(/^#\/?/,'')||'home');if(r==='dow
  go(ROUTES.some(x=>x[0]===r)?r:'home')}
 function go(r,silent,after){if(busy)return;if(r===cur){after&&after();return}busy=true;const w=$('#wipe'),first=!cur;
  const swap=()=>{cur=r;const v=document.createElement('section');v.className='view on';v.innerHTML=V[r]();$('#main').replaceChildren(v);scrollTo(0,0);
-  $$('#links a').forEach(a=>a.setAttribute('aria-current',a.dataset.r===r?'page':'false'));document.title=(ROUTES.find(x=>x[0]===r)[1])+' — ReLaunch';after&&after();bind(v);if(!first)setTimeout(()=>{w.className='out';setTimeout(()=>{w.className='';busy=false},700)},350);else busy=false};
+  $$('#links a').forEach(a=>a.setAttribute('aria-current',a.dataset.r===r?'page':'false'));document.title=(ROUTES.find(x=>x[0]===r)[1])+' — ReLaunch';after&&after();try{bind(v)}catch(err){console.error(err)}if(!first)setTimeout(()=>{w.className='out';setTimeout(()=>{w.className='';busy=false;route()},700)},350);else busy=false};
  if(first){swap();return}w.className='in';setTimeout(swap,620)}
 function bind(v){
  let i=0;const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
  v.querySelectorAll('.rv').forEach(el=>io.observe(el));
- v.querySelectorAll('.tilt').forEach(c=>c.addEventListener('pointermove',e=>{const b=c.getBoundingClientRect(),x=(e.clientX-b.left)/b.width,y=(e.clientY-b.top)/b.height;c.style.transform=`perspective(700px) rotateY(${(x-.5)*10}deg) rotateX(${(.5-y)*10}deg)`;c.style.setProperty('--px',x*100+'%');c.style.setProperty('--py',y*100+'%')}),c.addEventListener('pointerleave',()=>c.style.transform=''));
+ v.querySelectorAll('.tilt').forEach(c=>{c.addEventListener('pointermove',e=>{const b=c.getBoundingClientRect(),x=(e.clientX-b.left)/b.width,y=(e.clientY-b.top)/b.height;c.style.transform=`perspective(700px) rotateY(${(x-.5)*10}deg) rotateX(${(.5-y)*10}deg)`;c.style.setProperty('--px',x*100+'%');c.style.setProperty('--py',y*100+'%')});c.addEventListener('pointerleave',()=>c.style.transform='')});
  const win=$('#win');if(win)v.addEventListener('pointermove',e=>{const x=e.clientX/innerWidth-.5,y=e.clientY/innerHeight-.5;win.style.transform=`rotateY(${-10+x*14}deg) rotateX(${5-y*10}deg)`});
  v.querySelectorAll('[data-skin]').forEach(b=>{b.setAttribute('aria-pressed',document.documentElement.dataset.skin===b.dataset.skin);b.onclick=()=>skin(b.dataset.skin)});
  v.querySelectorAll('[data-login]').forEach(b=>b.onclick=login);v.querySelectorAll('[data-logout]').forEach(b=>b.onclick=logout);
