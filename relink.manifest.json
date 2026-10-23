@@ -1,0 +1,16 @@
+{
+  "slug": "relaunch",
+  "name": "ReLaunch",
+  "description": "Site du launcher Minecraft ReLaunch",
+  "sections": [
+    { "key": "home", "label": "Accueil" },
+    { "key": "launcher", "label": "Launcher" },
+    { "key": "ecosysteme", "label": "Écosystème" },
+    { "key": "events", "label": "Events" },
+    { "key": "boutique", "label": "Boutique" },
+    { "key": "compte", "label": "Mon compte", "requires_auth": true }
+  ],
+  "permissions": [
+    { "key": "relaunch.edit", "description": "Modifier le contenu du site ReLaunch", "default_roles": ["administrator"] }
+  ]
+}

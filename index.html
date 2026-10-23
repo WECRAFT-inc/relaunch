@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="fr" data-skin="phenix">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ReLaunch — Le launcher qu'on relance</title>
+<meta name="description" content="ReLaunch : le launcher Minecraft du Refuge Émeraudien. Instances, modpacks, events, WeLive, connecté à ReLink.">
+<link rel="icon" href="assets/logo.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{color-scheme:dark;--night:#0a0b10;--ink:#eef0f6;--soft:#a7acbd;--faint:#6d7386;--line:rgba(255,255,255,.1);
+--acc:#ff8a3d;--acc2:#ffb347;--deep:#c2410c;--spark:#7c8cff;--note:#facc15;--ok:#4ade80;--bad:#f87171;
+--fd:"Unbounded","Arial Black",system-ui,sans-serif;--fb:"Manrope",system-ui,sans-serif;--fm:"JetBrains Mono",ui-monospace,monospace;--ease:cubic-bezier(.2,.8,.2,1)}
+[data-skin=relink]{--acc:#3fd08a;--acc2:#8ee6b8;--deep:#0f766e;--spark:#38bdf8}
+[data-skin=aurore]{--acc:#8b7bff;--acc2:#c4b5fd;--deep:#4338ca;--spark:#f472b6}
+[data-skin=glace]{--acc:#5cc8ff;--acc2:#bae6fd;--deep:#0369a1;--spark:#a5f3fc}
+*{box-sizing:border-box}html{background:var(--night);scroll-behavior:smooth}
+body{margin:0;background:var(--night);color:var(--ink);font:15px/1.55 var(--fb);overflow-x:hidden;transition:background .6s}
+h1,h2,h3,p{margin:0}h2,h3{text-wrap:balance}button{font:inherit;color:inherit;cursor:pointer}a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.halo{position:fixed;inset:0;pointer-events:none;z-index:0;background:
+radial-gradient(40rem 30rem at var(--mx,20%) var(--my,0%),color-mix(in srgb,var(--acc) 20%,transparent),transparent 70%),
+radial-gradient(36rem 26rem at 98% 40%,color-mix(in srgb,var(--spark) 12%,transparent),transparent 70%)}
+.grid{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;background:repeating-linear-gradient(90deg,rgba(255,255,255,.022) 0 24px,transparent 24px 48px),repeating-linear-gradient(0deg,rgba(0,0,0,.2) 0 24px,transparent 24px 48px)}
+#embers{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.glass{background:linear-gradient(160deg,rgba(255,255,255,.08),rgba(255,255,255,.02) 55%);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+/* nav */
+nav{position:fixed;top:max(12px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:4px;padding:6px;border-radius:999px;max-width:calc(100% - 20px);background:rgba(10,12,18,.62);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line)}
+nav .lg{display:grid;place-items:center;width:40px;height:40px;border-radius:50%}nav .lg img{width:26px;transition:transform .8s var(--ease)}nav .lg:hover img{transform:rotate(360deg)}
+.links{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.links a{position:relative;padding:9px 14px;border-radius:999px;font-weight:700;font-size:13.5px;color:var(--soft);white-space:nowrap;transition:color .25s}
+.links a:hover{color:var(--ink)}
+.links a[aria-current=page]{color:var(--night);background:linear-gradient(140deg,var(--acc2),var(--acc));box-shadow:0 0 22px -4px var(--acc)}
+.skins{display:flex;gap:6px;padding:0 8px}.skins button{all:unset;cursor:pointer;width:14px;height:14px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px transparent;transition:.25s}
+.skins button[aria-pressed=true]{box-shadow:0 0 0 2px var(--night),0 0 0 4px var(--c);transform:scale(1.15)}
+.acct{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:999px;background:rgba(255,255,255,.06);font-weight:700;font-size:13px}
+.acct img,.acct i{width:30px;height:30px;border-radius:50%;background:var(--acc);display:block;object-fit:cover}
+/* views + transition */
+main{position:relative;z-index:2}.view{display:none;min-height:100vh;padding:110px max(20px,env(safe-area-inset-left)) 90px;max-width:1240px;margin:0 auto}.view.on{display:block}
+.rv{opacity:0;transform:translateY(30px) scale(.985);filter:blur(6px);transition:opacity .8s var(--ease),transform .8s var(--ease),filter .8s var(--ease);transition-delay:var(--d,0ms)}.rv.in{opacity:1;transform:none;filter:none}
+#wipe{position:fixed;inset:0;z-index:100;display:flex;pointer-events:none}#wipe b{flex:1;background:linear-gradient(180deg,var(--deep),color-mix(in srgb,var(--acc) 70%,#000));transform:scaleY(0);transform-origin:bottom;transition:transform .5s var(--ease)}
+#wipe.in{pointer-events:all}#wipe.in b{transform:scaleY(1)}#wipe.out b{transform-origin:top}
+#wipe img{position:fixed;left:50%;top:50%;width:70px;margin:-48px 0 0 -35px;opacity:0;transition:opacity .25s;z-index:101}#wipe.in img{opacity:1;animation:spin .9s var(--ease) infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.eyebrow{font:500 11.5px var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+.h2{font:700 clamp(28px,4.6vw,54px)/1.05 var(--fd);letter-spacing:-.02em;margin:10px 0 14px}.lead{color:var(--soft);max-width:60ch;font-size:16.5px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:14px;font-weight:800;background:rgba(255,255,255,.08);border:1px solid var(--line);transition:transform .25s var(--ease),background .25s}
+.btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.14)}.btn.pri{color:var(--night);border-color:transparent;background:linear-gradient(140deg,var(--acc2),var(--acc));box-shadow:0 10px 30px -10px var(--acc)}.btn.sm{padding:8px 14px;font-size:13px;border-radius:11px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+/* hero */
+.hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:30px;align-items:center;min-height:calc(100vh - 200px)}
+.huge{font:900 clamp(40px,8.4vw,112px)/.95 var(--fd);letter-spacing:-.04em;margin:14px 0;display:flex;flex-wrap:wrap}
+.huge span{display:inline-block;background:linear-gradient(180deg,#fff,color-mix(in srgb,var(--acc2) 70%,#fff) 60%,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent;animation:ign 1s var(--ease) both;animation-delay:calc(var(--i)*70ms + .2s)}
+@keyframes ign{from{opacity:0;transform:translateY(70%) rotate(-14deg) scale(.5);filter:blur(12px)}}
+.tag{font:800 clamp(18px,2.4vw,28px)/1.2 var(--fd)}.tag em{font-style:normal;color:var(--acc)}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+.mock{perspective:1200px}.win{transform:rotateY(-10deg) rotateX(5deg);transition:transform .2s;transform-style:preserve-3d;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#07080c;box-shadow:0 50px 90px -40px #000,0 0 80px -30px var(--acc)}
+.win .tb{height:28px;background:#0d0f15;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;color:var(--faint)}.win .tb i{width:9px;height:9px;border-radius:3px;background:rgba(255,255,255,.1)}
+.win .bd{display:grid;grid-template-columns:54px 1fr;height:340px;background:radial-gradient(110% 90% at 85% 0%,color-mix(in srgb,var(--acc) 28%,#0b1118),#08090e 68%)}
+.win .sb{background:rgba(10,12,18,.6);display:flex;flex-direction:column;gap:7px;align-items:center;padding:10px 0}.win .sb i{width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.07)}.win .sb i:nth-child(2){background:linear-gradient(140deg,var(--acc2),var(--acc))}
+.win .mn{padding:18px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px}.win .mn b{font:900 38px var(--fd);letter-spacing:-.03em}
+.win .play{align-self:flex-start;padding:9px 26px;border-radius:11px;font-weight:800;color:var(--night);background:linear-gradient(140deg,var(--acc2),var(--acc));animation:pulse 2.4s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--acc) 0%,transparent),0 0 30px color-mix(in srgb,var(--acc) 50%,transparent)}}
+.float{position:absolute;padding:10px 14px;border-radius:14px;font-size:12.5px;font-weight:700;animation:bob 5s ease-in-out infinite;background:rgba(14,16,24,.85)}.float small{display:block;color:var(--faint);font-weight:500}
+@keyframes bob{50%{transform:translateY(-12px)}}
+.mockw{position:relative}
+.marq{overflow:hidden;white-space:nowrap;border-block:1px solid var(--line);margin:60px -100vw 0;padding:18px 100vw;transform:rotate(-1.2deg)}
+.marq div{display:inline-block;animation:mq 28s linear infinite;font:900 clamp(22px,3.4vw,40px) var(--fd);letter-spacing:-.02em;color:transparent;-webkit-text-stroke:1px color-mix(in srgb,var(--acc) 70%,#fff)}.marq span{margin-right:40px}.marq span:nth-child(even){color:var(--acc);-webkit-text-stroke:0}
+@keyframes mq{to{transform:translateX(-50%)}}
+.phase{margin-top:90px;display:grid;gap:12px;text-align:center;justify-items:center}.phase s{color:var(--faint);text-decoration-color:var(--acc);text-decoration-thickness:4px}
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:34px}
+.card{padding:22px;transform-style:preserve-3d;transition:transform .2s,border-color .3s;position:relative;overflow:hidden}.card:hover{border-color:color-mix(in srgb,var(--acc) 60%,transparent)}
+.card::after{content:"";position:absolute;inset:0;background:radial-gradient(240px circle at var(--px,50%) var(--py,0),color-mix(in srgb,var(--acc) 18%,transparent),transparent 60%);opacity:0;transition:opacity .3s;pointer-events:none}.card:hover::after{opacity:1}
+.card .ic{font-size:26px;width:50px;height:50px;border-radius:14px;display:grid;place-items:center;background:color-mix(in srgb,var(--acc) 16%,transparent);margin-bottom:14px}
+.card h3{font:700 17px var(--fd);margin-bottom:8px;letter-spacing:-.01em}.card p{color:var(--soft);font-size:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:40px}.stats div{padding:18px}.stats b{display:block;font:900 30px var(--fd);color:var(--acc)}.stats span{font-size:12.5px;color:var(--soft)}
+/* ecosystem */
+.orb{position:relative;width:min(560px,92vw);aspect-ratio:1;margin:40px auto 0}
+.orb .ring{position:absolute;inset:0;border-radius:50%;border:1px dashed color-mix(in srgb,var(--acc) 40%,transparent);animation:spin 60s linear infinite}
+.orb .ring2{inset:22%;animation-direction:reverse;animation-duration:40s}
+.orb .core{position:absolute;inset:36%;border-radius:50%;display:grid;place-items:center;text-align:center;font:800 15px var(--fd);background:radial-gradient(circle,color-mix(in srgb,var(--acc) 35%,#000),#0b0c12);box-shadow:0 0 60px -10px var(--acc);animation:pulse 3s infinite}
+.orb .nd{position:absolute;left:50%;top:50%;width:0;height:0;transform:rotate(var(--a)) translateY(calc(min(560px,92vw)/-2 + 10px))}
+.orb .nd>span{position:absolute;left:-52px;top:-22px;width:104px;padding:9px 6px;text-align:center;font-size:11.5px;font-weight:800;border-radius:12px;transform:rotate(calc(var(--a)*-1));animation:cnt 60s linear infinite;background:rgba(14,16,24,.9);border:1px solid var(--line)}
+@keyframes cnt{to{transform:rotate(calc(var(--a)*-1 - 360deg))}}
+.orb .rot{position:absolute;inset:0;animation:spin 60s linear infinite}
+/* events */
+.evhero{padding:30px;display:flex;flex-wrap:wrap;gap:24px;justify-content:space-between;align-items:center;margin-top:30px;background:linear-gradient(120deg,color-mix(in srgb,var(--deep) 45%,transparent),rgba(255,255,255,.03))}
+.count{display:flex;gap:10px}.count div{text-align:center;min-width:74px;padding:12px;border-radius:14px;background:rgba(0,0,0,.35)}.count b{display:block;font:900 30px var(--fd);font-variant-numeric:tabular-nums}.count span{font-size:11px;color:var(--soft)}
+.cal{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;padding:14px 18px;margin-top:10px;transition:transform .3s var(--ease)}.cal:hover{transform:translateX(8px)}
+.cal .d{text-align:center;border-radius:12px;padding:8px 0;background:color-mix(in srgb,var(--acc) 16%,transparent)}.cal .d b{display:block;font:900 22px var(--fd)}.cal .d span{font-size:11px;text-transform:uppercase;color:var(--acc2)}
+/* shop / account */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 0}.chip{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:700;background:rgba(255,255,255,.06);border:1px solid var(--line)}.chip[aria-pressed=true]{background:var(--acc);color:var(--night)}
+.shop{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin-top:22px}.si{overflow:hidden;display:flex;flex-direction:column}
+.si .cv{height:110px;background:linear-gradient(135deg,var(--c1,#7c2d12),var(--c2,#ff8a3d));position:relative}.si .cv::after{content:attr(data-c);position:absolute;left:12px;bottom:10px;font:500 10.5px var(--fm);text-transform:uppercase;letter-spacing:.1em;padding:3px 8px;border-radius:99px;background:rgba(0,0,0,.45)}
+.si .b{padding:16px;display:flex;flex-direction:column;gap:6px;flex:1}.si .b p{font-size:13px;color:var(--soft);flex:1}.si .row{display:flex;justify-content:space-between;align-items:center;margin-top:8px}.price{font:800 15px var(--fd);color:var(--acc2)}
+.bal{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px 20px;margin-top:22px}
+.ph{padding:50px 28px;text-align:center;margin-top:30px;display:grid;gap:16px;justify-items:center}
+.prof{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:30px}.prof>div{padding:22px}.prof h3{font:700 15px var(--fd);margin-bottom:12px}
+.av{display:flex;gap:16px;align-items:center}.av img{width:72px;height:72px;border-radius:20px}
+input{font:inherit;color:inherit;padding:11px 14px;border-radius:12px;background:rgba(0,0,0,.35);border:1px solid var(--line);width:100%}
+.kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}.kv span{color:var(--soft)}
+.dl{margin-top:80px;padding:44px;text-align:center;display:grid;gap:16px;justify-items:center;background:radial-gradient(60% 120% at 50% 0,color-mix(in srgb,var(--acc) 22%,transparent),transparent)}
+footer{position:relative;z-index:2;text-align:center;padding:30px 20px 50px;color:var(--faint);font-size:13px}
+/* toast, edit, maintenance */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,40px);opacity:0;z-index:120;padding:12px 20px;border-radius:14px;background:#14161f;border:1px solid var(--line);font-weight:700;transition:.4s var(--ease);pointer-events:none}#toast.on{opacity:1;transform:translate(-50%,0)}
+#edbar{position:fixed;right:16px;bottom:16px;z-index:90;display:none;gap:8px;padding:8px;border-radius:16px}#edbar.on{display:flex}
+body.editing [data-k]{outline:1px dashed var(--note);outline-offset:3px;cursor:text;border-radius:4px}body.editing [data-k]:focus{background:rgba(250,204,21,.1)}
+#maint{position:fixed;inset:0;z-index:110;display:none;place-items:center;text-align:center;padding:30px;background:var(--night)}#maint.on{display:grid}
+@media(max-width:860px){.hero{grid-template-columns:1fr}.mock{display:none}.skins{display:none}.acct span{display:none}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.rv{opacity:1;transform:none;filter:none}}
+</style>
+</head>
+<body>
+<div class="halo" id="halo"></div><div class="grid"></div><canvas id="embers"></canvas>
+<nav aria-label="Navigation principale">
+  <a class="lg" href="#/home" aria-label="Accueil"><img src="assets/logo.webp" alt=""></a>
+  <div class="links" id="links"></div>
+  <div class="skins" id="skins" aria-label="Thème"></div>
+  <button class="acct" id="acct"><i></i><span>Connexion</span></button>
+</nav>
+<main id="main"></main>
+<footer id="foot"></footer>
+<div id="wipe" aria-hidden="true"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><img src="assets/logo.webp" alt=""></div>
+<div id="toast" role="status"></div>
+<div id="edbar" class="glass"><button class="btn sm" id="edTog">✎ Éditer</button><button class="btn sm pri" id="edSave" hidden>Publier</button></div>
+<div id="maint"><div><img src="assets/logo.webp" width="70" alt=""><h2 class="h2">Relance en cours</h2><p class="lead" id="maintMsg">Le site revient très vite.</p></div></div>
+
+<script>
+/* ═══ CONFIG — à renseigner ════════════════════════════════════════════
+   RELINK     : URL du Worker ReLink
+   CONTENT    : URL du Worker de contenu (copie de tlv-content, cf. notes)
+   DISCORD_ID : Client ID de l'application Discord utilisée par ReLink
+   Le redirect_uri (origin + chemin de cette page) doit être déclaré dans Discord
+   ET l'origine du site ajoutée dans EXACT_ALLOWED_ORIGINS du Worker ReLink. */
+const CFG={RELINK:'https://relink-auth.refugeemeraudien-direction.workers.dev',CONTENT:'',DISCORD_ID:'',SITE:'relaunch',EDIT_PERM:'relaunch.edit'};
+
+/* ═══ CONTENU PAR DÉFAUT (écrasé par le Worker de contenu) ═══════════════ */
+const DEF={
+ hero:{k:'Le Refuge Émeraudien présente',tag:'Le launcher <em>qu\'on relance.</em>',desc:'Instances, modpacks, serveurs, events et créateurs francophones : tout Minecraft au même endroit, relié à ton compte ReLink.',cta1:'Télécharger',cta2:'Découvrir'},
+ marquee:{t:['Au-delà de la Minecraft phase','Relance ton Minecraft','Un launcher, une communauté','Ton launcher, ton style']},
+ phase:{a:'Tout le monde a eu sa',b:'Minecraft phase.',c:'Nous, on relance.',d:'ReLaunch, c\'est l\'envie de rejouer, mais mieux : avec des gens, des events, des créateurs et un launcher qui te ressemble.'},
+ stats:[{n:'1 284',l:'joueurs sur ReLaunch'},{n:'4',l:'thèmes de couleur'},{n:'14',l:'events organisés'},{n:'1',l:'compte ReLink pour tout'}],
+ features:[
+  {i:'🔎',t:'Un catalogue façon Modrinth',d:'Mods, modpacks, shaders, packs de ressources : cherche, filtre par loader et version, installe en un clic.'},
+  {i:'📦',t:'Instances sans friction',d:'Crée un WePack ou importe tes instances Prism, CurseForge et Modrinth. Mémoire, loader, mods : tout est réglable.'},
+  {i:'🎨',t:'Un launcher customisable',d:'Barres de navigation placées où tu veux, thèmes de couleur, styles d\'interface complets : La Grande Vague, Orient Express, Pixel, Néon.'},
+  {i:'🔗',t:'Connecté à ReLink',d:'Un seul compte : profil, éclats, skins, succès, amis et captures te suivent entre le launcher et le site.'},
+  {i:'🔥',t:'Les events du Refuge',d:'Saisons RP, UHC, build battles, tournois : le modpack de l\'event s\'installe tout seul, tu n\'as qu\'à rejoindre.'},
+  {i:'📺',t:'WeLive',d:'Séries, lives, serveurs FR du moment et créateurs à suivre, directement dans le launcher.'},
+  {i:'🤝',t:'Des partenariats réguliers',d:'Serveurs, créateurs et marques partenaires : packs exclusifs, cosmétiques et récompenses en continu.'},
+  {i:'📸',t:'Skins & captures',d:'Sélecteur de skin intégré, galerie de captures (F2 en jeu), badges et rang ReLink.'}],
+ eco:{t:'Un écosystème, un compte',d:'ReLaunch n\'est pas un launcher isolé : il s\'appuie sur ReLink, le compte et le hub du Refuge Émeraudien.',nodes:['Launcher','Discord RE','WeLive','Boutique','Events','Partenaires','Skins','Succès']},
+ ev:{k:'Event RE · Saison 3',t:'Les Terres Brûlées',d:'Survie RP sur une carte volcanique, 3 mois, 500 places. Le modpack d\'event s\'installe tout seul.',date:'2026-10-24T21:00:00+02:00',list:[
+  {d:'24',m:'oct.',t:'Ouverture des Terres Brûlées',s:'Samedi 21h · Survie RP'},{d:'31',m:'oct.',t:'UHC d\'Halloween',s:'Vendredi 20h · équipes de 3'},
+  {d:'08',m:'nov.',t:'Build battle',s:'Samedi 18h · thème surprise'},{d:'15',m:'nov.',t:'Tournoi Skyblock',s:'Samedi 16h · 32 îles'}]},
+ dl:{t:'Prêt à relancer ?',d:'Gratuit. Windows, macOS et Linux.',win:'#',mac:'#',lin:'#'},
+ foot:{t:'ReLaunch · un projet du Refuge Émeraudien × Stellar Group'}};
+const C=JSON.parse(JSON.stringify(DEF));
+
+/* ═══ Utilitaires ═══════════════════════════════════════════════════════ */
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const get=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
+const set=(o,p,v)=>{const a=p.split('.'),l=a.pop();a.reduce((x,k)=>x[k],o)[l]=v};
+const K=p=>`data-k="${p}"`; // champ éditable
+const ls={get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}},del(k){try{localStorage.removeItem(k)}catch{}}};
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),3200)}
+const state={token:ls.get('rl_token'),me:null,flags:null,canEdit:false,editing:false,dirty:new Set(),shop:[],bal:null,rew:null};
+async function api(p,o={}){const h={...(o.headers||{})};if(state.token)h.Authorization='Bearer '+state.token;if(o.body)h['Content-Type']='application/json';
+ const r=await fetch(CFG.RELINK+p,{...o,headers:h,body:o.body?JSON.stringify(o.body):undefined});const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw Object.assign(new Error(typeof d.error==='string'?d.error:d.error?.message||'Erreur'),{status:r.status});return d}
+
+/* ═══ Vues ═══════════════════════════════════════════════════════════════ */
+const ROUTES=[['home','Accueil'],['launcher','Launcher'],['ecosysteme','Écosystème'],['events','Events'],['boutique','Boutique'],['compte','Mon compte']];
+const V={
+home(){const h=C.hero,p=C.phase,m=C.marquee.t.map(t=>`<span>${esc(t)}</span>`).join('');return `
+<div class="hero"><div>
+ <span class="eyebrow rv" ${K('hero.k')}>${esc(h.k)}</span>
+ <h1 class="huge" aria-label="RELAUNCH">${[...'RELAUNCH'].map((c,i)=>`<span style="--i:${i}">${c}</span>`).join('')}</h1>
+ <p class="tag rv" style="--d:300ms" ${K('hero.tag')}>${h.tag}</p>
+ <p class="lead rv" style="--d:420ms;margin-top:14px" ${K('hero.desc')}>${esc(h.desc)}</p>
+ <div class="cta rv" style="--d:540ms"><a class="btn pri" href="#/download" data-dl><span ${K('hero.cta1')}>${esc(h.cta1)}</span> ↓</a><a class="btn" href="#/launcher" ${K('hero.cta2')}>${esc(h.cta2)}</a></div>
+</div>
+<div class="mock rv" style="--d:300ms"><div class="mockw"><div class="win" id="win"><div class="tb"><i></i><span>ReLaunch</span></div>
+ <div class="bd"><div class="sb"><i></i><i></i><i></i><i></i><i></i></div><div class="mn"><small style="color:var(--ok)">● 3 amis en ligne</small><b>RELAUNCH</b><div class="play">Jouer</div></div></div></div>
+ <div class="float glass" style="right:-14px;top:30px">Terres Brûlées<small>Event RE · J-2</small></div>
+ <div class="float glass" style="left:-18px;bottom:50px;animation-delay:-2s">Nordique<small>Modpack · 146 mods</small></div></div></div></div>
+<div class="marq" aria-hidden="true"><div>${m}${m}${m}${m}</div></div>
+<div class="phase rv"><h2 class="h2" style="margin:0"><span ${K('phase.a')}>${esc(p.a)}</span> <s ${K('phase.b')}>${esc(p.b)}</s><br><span style="color:var(--acc)" ${K('phase.c')}>${esc(p.c)}</span></h2><p class="lead" ${K('phase.d')}>${esc(p.d)}</p></div>
+<div class="stats">${C.stats.map((s,i)=>`<div class="glass rv" style="--d:${i*80}ms"><b ${K('stats.'+i+'.n')}>${esc(s.n)}</b><span ${K('stats.'+i+'.l')}>${esc(s.l)}</span></div>`).join('')}</div>
+<div class="dl glass rv" id="dl"><h2 class="h2" style="margin:0" ${K('dl.t')}>${esc(C.dl.t)}</h2><p class="lead" ${K('dl.d')}>${esc(C.dl.d)}</p>
+ <div class="cta" style="margin:0;justify-content:center"><a class="btn pri" href="${esc(C.dl.win)}">Windows</a><a class="btn" href="${esc(C.dl.mac)}">macOS</a><a class="btn" href="${esc(C.dl.lin)}">Linux</a></div></div>`},
+launcher(){return `<span class="eyebrow rv">Le launcher</span><h2 class="h2 rv">Tout ce qu'il faut,<br><span style="color:var(--acc)">et ce que tu ajoutes.</span></h2>
+<div class="cards">${C.features.map((f,i)=>`<article class="card glass rv tilt" style="--d:${i*70}ms"><div class="ic">${f.i}</div><h3 ${K('features.'+i+'.t')}>${esc(f.t)}</h3><p ${K('features.'+i+'.d')}>${esc(f.d)}</p></article>`).join('')}</div>
+<div class="chips rv" aria-label="Aperçu des thèmes"><span class="eyebrow" style="align-self:center">Thèmes</span>${['phenix','relink','aurore','glace'].map(s=>`<button class="chip" data-skin="${s}" aria-pressed="false">${s}</button>`).join('')}</div>`},
+ecosysteme(){const n=C.eco.nodes;return `<span class="eyebrow rv">Écosystème ReLink</span><h2 class="h2 rv" ${K('eco.t')}>${esc(C.eco.t)}</h2><p class="lead rv" ${K('eco.d')}>${esc(C.eco.d)}</p>
+<div class="orb rv"><div class="ring"></div><div class="ring ring2"></div><div class="rot">${n.map((x,i)=>`<div class="nd" style="--a:${i*360/n.length}deg"><span ${K('eco.nodes.'+i)}>${esc(x)}</span></div>`).join('')}</div><div class="core">Re<br>Link</div></div>
+<div class="cards"><div class="card glass rv"><div class="ic">🪪</div><h3>Un compte Discord</h3><p>Connexion avec Discord, liaison de ton compte Minecraft par /link, parrainage et streak quotidien.</p></div>
+<div class="card glass rv"><div class="ic">💎</div><h3>Éclats & boutique</h3><p>Gagne des éclats en jouant et dépense-les dans la boutique : cosmétiques, grades, styles du launcher.</p></div>
+<div class="card glass rv"><div class="ic">🏆</div><h3>Classements</h3><p>Stats, clans et succès partagés entre le serveur, le site et le launcher.</p></div></div>`},
+events(){const e=C.ev;return `<span class="eyebrow rv">Events du Refuge Émeraudien</span><h2 class="h2 rv">On se retrouve<br><span style="color:var(--acc)">toute l'année.</span></h2>
+<div class="evhero glass rv"><div><span class="eyebrow" ${K('ev.k')}>${esc(e.k)}</span><h3 class="h2" style="margin:8px 0" ${K('ev.t')}>${esc(e.t)}</h3><p class="lead" ${K('ev.d')}>${esc(e.d)}</p></div>
+<div class="count" aria-label="Compte à rebours"><div><b id="cD">0</b><span>jours</span></div><div><b id="cH">0</b><span>heures</span></div><div><b id="cM">0</b><span>min</span></div></div></div>
+<h3 class="eyebrow" style="margin-top:36px">Prochains rendez-vous</h3>${e.list.map((x,i)=>`<div class="cal glass rv" style="--d:${i*80}ms"><div class="d"><b ${K('ev.list.'+i+'.d')}>${esc(x.d)}</b><span ${K('ev.list.'+i+'.m')}>${esc(x.m)}</span></div><div><b ${K('ev.list.'+i+'.t')}>${esc(x.t)}</b><div style="color:var(--soft);font-size:13px" ${K('ev.list.'+i+'.s')}>${esc(x.s)}</div></div></div>`).join('')}`},
+boutique(){return `<span class="eyebrow rv">Boutique ReLink</span><h2 class="h2 rv">Customise<br><span style="color:var(--acc)">ton Minecraft.</span></h2>
+<div class="bal glass rv"><span id="balTxt">${state.token?'Chargement du solde…':'Connecte-toi pour acheter avec tes éclats.'}</span>${state.token?'':'<button class="btn sm pri" data-login>Connexion Discord</button>'}</div>
+<div class="chips rv" id="shopCats"></div><div class="shop" id="shopGrid"></div>`},
+compte(){if(!state.token)return `<div class="ph glass rv"><img src="assets/logo.webp" width="64" alt=""><h2 class="h2" style="margin:0">Ton compte ReLink</h2><p class="lead">Connecte-toi avec Discord pour retrouver ton profil, tes éclats, ton parrainage et lier ton compte Minecraft.</p><button class="btn pri" data-login>Se connecter avec Discord</button></div>`;
+ const m=state.me||{},r=state.rew||{};return `<span class="eyebrow rv">Mon compte</span>
+<div class="prof"><div class="glass rv"><div class="av"><img src="${esc(m.avatar_url||'assets/logo.webp')}" alt=""><div><h3 style="font-size:20px;margin:0">${esc(m.pseudo||'…')}</h3><small style="color:var(--soft)">${m.is_partner?'Partenaire · ':''}Compte ReLink</small></div></div>
+ <div class="kv" style="margin-top:16px"><span>Éclats</span><b>${r.eclats??m.eclats??0}</b></div><div class="kv"><span>Compte Minecraft</span><b>${esc(m.minecraft_username||'non lié')}</b></div>
+ <div class="kv"><span>Streak</span><b>${r.streak?.current_streak??0} j (record ${r.streak?.longest_streak??0})</b></div><div class="kv"><span>Code de parrainage</span><b>${esc(r.referral_code||'…')}</b></div>
+ <button class="btn sm" style="margin-top:16px" data-logout>Déconnexion</button></div>
+<div class="glass rv" style="--d:100ms"><h3>Lier mon compte Minecraft</h3><p style="color:var(--soft);font-size:14px;margin-bottom:12px">Tape /link en jeu, puis entre le code ici.</p>
+ <input id="lkCode" maxlength="6" inputmode="numeric" placeholder="Code à 6 chiffres" style="margin-bottom:10px"><input id="lkRef" maxlength="8" placeholder="Code de parrainage (optionnel)" style="margin-bottom:12px"><button class="btn pri" id="lkGo">Lier</button></div>
+<div class="glass rv" style="--d:200ms"><h3>Mes achats</h3><div id="buys" style="font-size:14px;color:var(--soft)">Chargement…</div></div></div>`}
+};
+const DEMO=[{id:0,name:'Cape Phénix',category:'event_item',description:'Cape de braises.',price_eclats:400},{id:0,name:'Ailes de braise',category:'vip',description:'Cosmétique.',price_eclats:650},{id:0,name:'Grade Phénix · 1 mois',category:'vip',description:'Grade ReLink.',price_eclats:900}];
+const COL=[['#7c2d12','#ff8a3d'],['#1e3a8a','#a5b4fc'],['#581c87','#e879f9'],['#064e3b','#3fd08a'],['#713f12','#facc15']];
+const CATS={lootbox:'Lootbox',money_ig:'Argent IG',gift_card:'Cartes cadeaux',event_item:'Event',vip:'VIP & grades'};
+
+/* ═══ Routeur + transition ═══════════════════════════════════════════════ */
+let cur=null,busy=false;
+function route(){const r=(location.hash.replace(/^#\/?/,'')||'home');if(r==='download'){go('home',true,()=>{$('#dl')?.scrollIntoView({behavior:'smooth'})});return}
+ go(ROUTES.some(x=>x[0]===r)?r:'home')}
+function go(r,silent,after){if(busy)return;if(r===cur){after&&after();return}busy=true;const w=$('#wipe'),first=!cur;
+ const swap=()=>{cur=r;const v=document.createElement('section');v.className='view on';v.innerHTML=V[r]();$('#main').replaceChildren(v);scrollTo(0,0);
+  $$('#links a').forEach(a=>a.setAttribute('aria-current',a.dataset.r===r?'page':'false'));document.title=(ROUTES.find(x=>x[0]===r)[1])+' — ReLaunch';after&&after();bind(v);if(!first)setTimeout(()=>{w.className='out';setTimeout(()=>{w.className='';busy=false},700)},350);else busy=false};
+ if(first){swap();return}w.className='in';setTimeout(swap,620)}
+function bind(v){
+ let i=0;const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
+ v.querySelectorAll('.rv').forEach(el=>io.observe(el));
+ v.querySelectorAll('.tilt').forEach(c=>c.addEventListener('pointermove',e=>{const b=c.getBoundingClientRect(),x=(e.clientX-b.left)/b.width,y=(e.clientY-b.top)/b.height;c.style.transform=`perspective(700px) rotateY(${(x-.5)*10}deg) rotateX(${(.5-y)*10}deg)`;c.style.setProperty('--px',x*100+'%');c.style.setProperty('--py',y*100+'%')}),c.addEventListener('pointerleave',()=>c.style.transform=''));
+ const win=$('#win');if(win)v.addEventListener('pointermove',e=>{const x=e.clientX/innerWidth-.5,y=e.clientY/innerHeight-.5;win.style.transform=`rotateY(${-10+x*14}deg) rotateX(${5-y*10}deg)`});
+ v.querySelectorAll('[data-skin]').forEach(b=>{b.setAttribute('aria-pressed',document.documentElement.dataset.skin===b.dataset.skin);b.onclick=()=>skin(b.dataset.skin)});
+ v.querySelectorAll('[data-login]').forEach(b=>b.onclick=login);v.querySelectorAll('[data-logout]').forEach(b=>b.onclick=logout);
+ if(cur==='events')countdown();if(cur==='boutique')loadShop();if(cur==='compte'&&state.token)loadAccount();
+ applyEdit()}
+function countdown(){clearInterval(countdown.t);const f=()=>{const d=Math.max(0,new Date(C.ev.date)-Date.now());if(!$('#cD'))return clearInterval(countdown.t);$('#cD').textContent=Math.floor(d/864e5);$('#cH').textContent=Math.floor(d/36e5)%24;$('#cM').textContent=Math.floor(d/6e4)%60};f();countdown.t=setInterval(f,15000)}
+
+/* ═══ Thèmes ═════════════════════════════════════════════════════════════ */
+const SK={phenix:'#ff8a3d',relink:'#3fd08a',aurore:'#8b7bff',glace:'#5cc8ff'};
+function skin(s){document.documentElement.dataset.skin=s;ls.set('rl_skin',s);$$('#skins button,[data-skin]').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.skin||b.dataset.s)===s))}
+$('#skins').innerHTML=Object.entries(SK).map(([k,c])=>`<button data-s="${k}" style="--c:${c}" aria-label="Thème ${k}" aria-pressed="false"></button>`).join('');
+$('#skins').onclick=e=>{const b=e.target.closest('button');if(b)skin(b.dataset.s)};skin(ls.get('rl_skin')||'phenix');
+
+/* ═══ Auth Discord via ReLink ════════════════════════════════════════════ */
+const RU=location.origin+location.pathname;
+function login(){if(!CFG.DISCORD_ID)return toast('Renseigne CFG.DISCORD_ID dans index.html');
+ location.href=`https://discord.com/oauth2/authorize?client_id=${CFG.DISCORD_ID}&response_type=code&scope=identify%20email&redirect_uri=${encodeURIComponent(RU)}`}
+function logout(){state.token=null;state.me=null;ls.del('rl_token');renderAcct();state.canEdit=false;$('#edbar').classList.remove('on');cur=null;route();toast('Déconnecté')}
+async function finishLogin(){const code=new URLSearchParams(location.search).get('code');if(!code)return;history.replaceState(null,'',RU+location.hash);
+ try{const d=await api('/auth/discord',{method:'POST',body:{code,redirect_uri:RU}});state.token=d.access_token;ls.set('rl_token',d.access_token);toast(d.is_new_user?'Bienvenue sur ReLink !':'Content de te revoir !')}catch(e){toast(e.message)}}
+async function loadMe(){if(!state.token)return renderAcct();try{state.me=await api('/me')}catch(e){if(e.status===401||e.status===403){state.token=null;ls.del('rl_token')}}renderAcct();checkEdit()}
+function renderAcct(){const m=state.me,b=$('#acct');b.innerHTML=m?`<img src="${esc(m.avatar_url||'assets/logo.webp')}" alt=""><span>${esc(m.pseudo)}</span>`:'<i></i><span>Connexion</span>';b.onclick=()=>m?(location.hash='#/compte'):login()}
+async function loadAccount(){try{[state.me,state.rew]=await Promise.all([api('/me'),api('/rewards/summary')]);}catch(e){return}
+ cur&&$('#main .view')&&(()=>{const v=$('#main .view'),sc=scrollY;v.innerHTML=V.compte();bind(v);scrollTo(0,sc);fillBuys();$('#lkGo').onclick=link;v.querySelectorAll('.rv').forEach(x=>x.classList.add('in'))})()}
+async function fillBuys(){try{const d=await api('/shop/purchases/me'),e=$('#buys');if(e)e.innerHTML=d.purchases.length?d.purchases.map(p=>`<div class="kv"><span>${esc(p.name)} ×${p.quantity}</span><b>${p.status==='fulfilled'?'livré':p.status==='cancelled'?'annulé':'en attente'}</b></div>`).join(''):'Aucun achat pour l\'instant.'}catch{}}
+async function link(){const code=$('#lkCode').value.trim(),ref=$('#lkRef').value.trim();if(!code)return toast('Entre le code affiché en jeu');
+ try{const d=await api('/link/confirm',{method:'POST',body:{code,referral_code:ref||undefined}});toast('Compte lié : '+d.minecraft_username);loadAccount()}catch(e){toast(e.message)}}
+
+/* ═══ Boutique ═══════════════════════════════════════════════════════════ */
+async function loadShop(){let items,demo=false;try{items=(await api('/shop')).items}catch{items=DEMO;demo=true}state.shop=items;
+ if(state.token)try{state.rew=await api('/rewards/summary');state.bal=state.rew.eclats}catch{}
+ const bt=$('#balTxt');if(bt&&state.token)bt.innerHTML=`Solde : <b>${state.bal??0} éclats</b>${demo?' · aperçu (boutique indisponible)':''}`;
+ const cats=['all',...new Set(items.map(i=>i.category))];let f='all';
+ const draw=()=>{$('#shopCats').innerHTML=cats.map(c=>`<button class="chip" data-c="${c}" aria-pressed="${c===f}">${c==='all'?'Tout':CATS[c]||c}</button>`).join('');
+  $('#shopGrid').innerHTML=items.filter(i=>f==='all'||i.category===f).map((i,n)=>{const c=COL[(i.id+n)%COL.length],p=i.promo_active&&i.promo_price!=null?i.promo_price:i.price_eclats;
+   return `<div class="si glass rv in" style="--d:${n*50}ms"><div class="cv" data-c="${esc(CATS[i.category]||i.category)}" style="--c1:${c[0]};--c2:${c[1]}"></div><div class="b"><h3 style="font:700 15px var(--fd)">${esc(i.name)}</h3><p>${esc(i.description||'')}</p><div class="row"><span class="price">${p} ◆</span><button class="btn sm pri" data-buy="${i.id}" ${demo?'disabled':''}>Acheter</button></div></div></div>`}).join('')};
+ draw();$('#shopCats').onclick=e=>{const b=e.target.closest('[data-c]');if(b){f=b.dataset.c;draw()}};
+ $('#shopGrid').onclick=async e=>{const b=e.target.closest('[data-buy]');if(!b)return;if(!state.token)return login();
+  try{const d=await api('/shop/'+b.dataset.buy+'/purchase',{method:'POST',body:{quantity:1}});state.bal=d.balance;$('#balTxt').innerHTML=`Solde : <b>${d.balance} éclats</b>`;toast('Acheté : '+d.item)}catch(er){toast(er.message)}}}
+
+/* ═══ Flags ReLink (sections + maintenance) ══════════════════════════════ */
+async function loadFlags(){let f=null;try{f=await api('/flags?site='+CFG.SITE)}catch{}state.flags=f;
+ if(f?.maintenance&&!state.canEdit){$('#maintMsg').textContent=f.maintenance_message||'Le site revient très vite.';$('#maint').classList.add('on')}
+ const off=r=>f?.registered&&f.sections&&f.sections[r]===false;
+ $('#links').innerHTML=ROUTES.filter(([r])=>!off(r)).map(([r,l])=>`<a href="#/${r}" data-r="${r}">${l}</a>`).join('')}
+
+/* ═══ Édition du contenu (façon tlv-content) ═════════════════════════════
+   Visible seulement si ReLink accorde relaunch.edit (ou admin.access) à ce compte. */
+async function checkEdit(){try{const d=await api('/me/permissions?scope='+CFG.SITE);state.canEdit=d.permissions.includes(CFG.EDIT_PERM)||d.permissions.includes('admin.access')}catch{state.canEdit=false}$('#edbar').classList.toggle('on',state.canEdit)}
+function applyEdit(){$$('[data-k]').forEach(el=>{el.contentEditable=state.editing?'plaintext-only':'false';el.spellcheck=false;if(state.editing)el.oninput=()=>{set(C,el.dataset.k,el.textContent);state.dirty.add(el.dataset.k.split('.')[0]);$('#edSave').hidden=false};});
+ $$('[data-k] a,a[data-k]').forEach(a=>a.onclick=e=>state.editing&&e.preventDefault())}
+$('#edTog').onclick=()=>{state.editing=!state.editing;document.body.classList.toggle('editing',state.editing);$('#edTog').textContent=state.editing?'✓ Terminer':'✎ Éditer';applyEdit()};
+$('#edSave').onclick=async()=>{if(!CFG.CONTENT)return toast('Renseigne CFG.CONTENT (Worker de contenu)');
+ try{for(const s of state.dirty){const r=await fetch(`${CFG.CONTENT}/content/${s}`,{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+state.token},body:JSON.stringify(C[s])});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Erreur '+r.status)}
+  state.dirty.clear();$('#edSave').hidden=true;toast('Contenu publié')}catch(e){toast(e.message)}};
+async function loadContent(){if(!CFG.CONTENT)return;try{const d=await (await fetch(CFG.CONTENT+'/content',{cache:'no-store'})).json();
+ for(const [k,v] of Object.entries(d.data||{}))if(k in C)C[k]=v}catch{}}
+
+/* ═══ Braises + halo ═════════════════════════════════════════════════════ */
+(function(){const cv=$('#embers'),x=cv.getContext('2d');if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;let W,H,P=[];
+ const rs=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight};rs();addEventListener('resize',rs);
+ const mk=b=>({x:Math.random()*W,y:b?H+10:Math.random()*H,r:Math.random()*2.2+.6,v:Math.random()*.7+.25,d:Math.random()*Math.PI*2,a:Math.random()*.6+.2});
+ for(let i=0;i<55;i++)P.push(mk());
+ (function t(){x.clearRect(0,0,W,H);const c=getComputedStyle(document.documentElement).getPropertyValue('--acc2').trim()||'#ffb347';x.fillStyle=c;
+  for(const p of P){p.y-=p.v;p.d+=.02;p.x+=Math.sin(p.d)*.4;if(p.y<-10)Object.assign(p,mk(true));x.globalAlpha=p.a*(p.y/H+.2);x.beginPath();x.arc(p.x,p.y,p.r,0,7);x.fill()}requestAnimationFrame(t)})()})();
+addEventListener('pointermove',e=>{const h=$('#halo').style;h.setProperty('--mx',e.clientX+'px');h.setProperty('--my',e.clientY+'px')});
+
+/* ═══ Démarrage ═════════════════════════════════════════════════════════ */
+$('#foot').innerHTML=`<span ${K('foot.t')}>${esc(C.foot.t)}</span>`;
+(async()=>{await finishLogin();await Promise.all([loadContent(),loadFlags(),loadMe()]);$('#foot').innerHTML=`<span ${K('foot.t')}>${esc(C.foot.t)}</span>`;route();addEventListener('hashchange',route)})();
+</script>
+</body>
+</html>
