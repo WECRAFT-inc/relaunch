@@ -955,12 +955,12 @@
 <body>
 
 <div id="app">
-  <div id="auth-screen" style="visibility: hidden; display: none;">
+  <div id="auth-screen" style="visibility: hidden;">
     <div class="auth-card">
       <div class="gem-big">⚙️</div>
       <h2>ReLink Admin</h2>
       <p>Entrez votre clé d'administration pour continuer.</p>
-      <input type="password" id="secret-input" placeholder="X-Admin-Secret" autocomplete="off"><input id="auth-worker-url" type="url" placeholder="URL du Worker (ex: https://xxx.workers.dev)" autocomplete="off" style="margin-bottom: 12px;" value="https://relink-auth.refugeemeraudien-direction.workers.dev">
+      <input type="password" id="secret-input" placeholder="X-Admin-Secret" autocomplete="off">
       <button class="btn-primary" onclick="login()">Accéder au panneau</button>
       <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--muted);font-size:11px;">
         <div style="flex:1;height:1px;background:var(--border);"></div>OU<div style="flex:1;height:1px;background:var(--border);"></div>
@@ -972,7 +972,7 @@
     </div>
   </div>
 
-  <nav id="sidebar" style="display: flex;">
+  <nav id="sidebar" style="display: none;">
     <div class="nav-logo">
       <div class="gem">⚙️</div>
       <div>
@@ -1087,7 +1087,7 @@
     </div>
   </nav>
 
-  <main id="main-content" style="display: flex; flex-direction: column;">
+  <main id="main-content" style="display: none; flex-direction: column;">
     <div id="auto-refresh-bar" class="visible">
       <span style="font-size:12px;color:var(--muted);">Auto-refresh :</span>
       <select id="auto-refresh-interval" onchange="setAutoRefresh(this.value)" style="min-height:32px;padding:5px 30px 5px 9px;">
@@ -1101,8 +1101,8 @@
       <div id="rl-dash-card" style="order:2"></div>
       <div id="db-root">
       <div class="db-top"><h2>Tableau de bord</h2>
-        <span class="db-pill ok">🟢 Worker &amp; base opérationnels · 161 ms</span>
-        <span class="db-sub">Mis à jour à 22:03:53</span>
+        <span class="db-pill">État du Worker en attente</span>
+        <span class="db-sub">Aucune donnée chargée</span>
         <button class="btn-action btn-link" style="margin-left:auto" onclick="loadDashboard()">↻ Actualiser</button></div>
       <div class="db-grid-kpi"><button class="db-kpi " style="--c:#5c6ef7" onclick="dbGo('users')"><div class="ico">👥</div><div class="val">19</div><div class="lbl">Utilisateurs</div><div class="sub"><b>3</b> admin · <b>0</b> suspendus · <b>0</b> bannis</div></button><button class="db-kpi " style="--c:#f5a623" onclick="dbGo('commandes')"><div class="ico">📦</div><div class="val">0</div><div class="lbl">Commandes en attente</div><div class="sub"><b>0</b> livrées au total</div></button><button class="db-kpi " style="--c:#ec4899" onclick="dbGo('submissions')"><div class="ico">📋</div><div class="val">3</div><div class="lbl">Formulaires</div><div class="sub"><b>3</b> équipes · <b>0</b> partenaires</div></button><button class="db-kpi " style="--c:#14b8a6" onclick="dbGo('sites')"><div class="ico">🌐</div><div class="val">3</div><div class="lbl">Sites</div><div class="sub">Tous accessibles</div></button><button class="db-kpi " style="--c:#8b5cf6" onclick="dbGo('webhooks')"><div class="ico">🪝</div><div class="val">0</div><div class="lbl">Webhooks</div><div class="sub">0 actif(s)</div></button><button class="db-kpi " style="--c:#3ecf8e" onclick="dbGo('services')"><div class="ico">🔑</div><div class="val">2</div><div class="lbl">Clés API actives</div><div class="sub"><b>3</b> service(s)</div></button></div>
       <div class="db-cols">
@@ -2087,16 +2087,40 @@ async function login() {
   if (!secretVal) { showError('Entrez votre clé admin.'); return; }
   if (!url)       { showError('Entrez l\'URL du Worker.'); return; }
 
+  let workerUrl;
+  try {
+    const parsed = new URL(url);
+    if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password)
+      throw new Error();
+    workerUrl = parsed.href.replace(/\/+$/, '');
+  } catch {
+    showError('URL du Worker invalide. Entrez une URL http(s) valide, par exemple https://votre-worker.workers.dev.');
+    return;
+  }
+
   ADMIN_SECRET = secretVal;
-  WORKER_URL   = url.replace(/\/$/, '');
+  WORKER_URL   = workerUrl;
   AUTH_MODE    = 'secret';
+  const error = document.getElementById('auth-error');
+  error.style.display = 'none';
 
   try {
     const r = await apiFetch('/admin/flags', 'GET');
-    if (r.error) { showError('Clé incorrecte ou Worker inaccessible.'); return; }
+    if (r.error) {
+      const message = r.status === 401
+        ? 'Worker joignable, mais la clé admin a été refusée (401). Vérifiez ADMIN_SECRET.'
+        : r.status === 403
+          ? 'Worker joignable, mais votre compte n’a pas l’autorisation admin (403).'
+          : r.status === 404
+            ? 'Worker joignable, mais la route /admin/flags est absente (404). Vérifiez que le bon Worker est déployé.'
+            : `Worker joignable, mais la connexion a échoué (HTTP ${r.status || 'inconnu'}) : ${r.error}`;
+      showError(message);
+      return;
+    }
+    try { localStorage.setItem('relink_worker_url', WORKER_URL); } catch {}
     enterPanel();
   } catch(e) {
-    showError('Impossible de joindre le Worker : ' + e.message);
+    showError(`Impossible de joindre ${WORKER_URL} : ${e.message}. Vérifiez l’URL, le réseau et la configuration CORS du Worker.`);
   }
 }
 
@@ -2321,6 +2345,7 @@ const dbAvatar = (u, name) => u && u.avatar_url
 async function loadDashboard() {
   if (dbBusy) return; dbBusy = true;
   const root = document.getElementById('db-root');
+  root.innerHTML = '<div class="db-empty">Chargement des données réelles du Worker…</div>';
   const safe = p => apiFetch(p).catch(e => ({ error: String(e) }));
   try {
     const t0 = performance.now();
@@ -4491,7 +4516,9 @@ const DEFAULT_WORKER_URL = 'https://relink-auth.refugeemeraudien-direction.worke
   urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
   const savedUrl = localStorage.getItem('relink_worker_url') || DEFAULT_WORKER_URL;
   urlInput.value = savedUrl;
-  urlInput.addEventListener('input', () => localStorage.setItem('relink_worker_url', urlInput.value.trim()));
+  urlInput.addEventListener('input', () => {
+    try { localStorage.setItem('relink_worker_url', urlInput.value.trim()); } catch {}
+  });
   authCard.insertBefore(urlInput, input.nextSibling);
 })();
 
@@ -5180,7 +5207,7 @@ var ROUTES={
 /* ---------- Réglages de connexion (le jeton n'est jamais enregistré) ---------- */
 function lsGet(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
-var CFG={simulate:lsGet('rla-sim',true)};
+var CFG={simulate:lsGet('rla-sim-v2',false)};
 var S={sec:'overview',drawer:null,f:{}};
 function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
 function pathOf(key,params){return ROUTES[key][1].replace(/:(\w+)/g,function(_,k){return encodeURIComponent(params&&params[k]!=null?params[k]:':'+k)})}
@@ -5285,7 +5312,7 @@ var IC={
   eye:svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>')
 };
 
-/* ---------- Données d'exemple (remplacées par les réponses du Worker une fois branché) ---------- */
+/* ---------- Valeurs initiales neutres, hydratées depuis le Worker ---------- */
 var CARDTYPES={event:['Event','#ea580c'],content:['Contenu','#7c3aed'],maj:['MAJ','#16a34a'],discover:['À découvrir','#0284c7'],social:['Réseaux','#db2777'],shop:['Shop','#ca8a04'],video:['Vidéo','#dc2626']};
 var DEST={wecraft:'WeCraft',relaunch:'ReLaunch (events)',welive:'WeLive',live:'Diffusion partenaires',shop:'Shop ReLink',news:'Info & News',discover:'Découvrir',url:'Lien externe'};
 var DB={
@@ -5389,6 +5416,28 @@ var DB={
     {id:'r5',who:'LunaCraft',by:'Garo_Live',reason:'Spam',where:'Créatif',when:'hier',state:'closed',assignee:'NkingLife'}
   ],
 };
+DB.stats={online:0,onlinePeak:0,accounts:0,accountsToday:0,sales7:[],players24:[]};
+DB.health=[];
+DB.channels={
+  stable:{cur:'—',prev:'—',rollout:0,paused:false,adoption:0,crash:0},
+  beta:{cur:'—',prev:'—',rollout:0,paused:false,adoption:0,crash:0},
+  interne:{cur:'—',prev:'—',rollout:0,paused:false,adoption:0,crash:0}
+};
+DB.updates={kill:false,minVersion:'',blockOld:true};
+DB.releases=[];
+DB.flags=[];
+DB.config={version:0,json:'{}',history:[]};
+DB.maintenance={on:false,level:'info',text:'',block:false};
+DB.cards=[];
+DB.news=[];
+DB.notifs=[];
+DB.lskins=[];
+DB.modpacks=[];
+DB.servers=[];
+DB.events=[];
+DB.partners=[];
+DB.reports=[];
+DB.carousel={count:3,autoplay:true,speed:7};
 
 /* =====================================================================
    Navigation
@@ -5442,21 +5491,21 @@ SEC.overview=function(){
   if(!CFG.simulate){
     var m=DB.launcherMetrics||{}, checks=DB.health||[];
     var realKpis=[
-      ['Releases',m.releases||0,'Versions stockées'],
-      ['Modpacks',m.modpacks||0,'Dans le catalogue admin'],
-      ['Serveurs',m.servers||0,'Dans le catalogue admin'],
-      ['Signalements',m.reportsOpen||0,'À traiter']
+      ['Releases',m.releases,'Versions stockées'],
+      ['Modpacks',m.modpacks,'Dans le catalogue admin'],
+      ['Serveurs',m.servers,'Dans le catalogue admin'],
+      ['Signalements',m.reportsOpen,'À traiter']
     ];
-    return '<div class="grid g4">'+realKpis.map(function(k){return '<div class="panel kpi"><span class="lbl">'+esc(k[0])+'</span><span class="v">'+fmt(k[1])+'</span><span class="d">'+esc(k[2])+'</span></div>'}).join('')+'</div>'+
+    return '<div class="grid g4">'+realKpis.map(function(k){return '<div class="panel kpi"><span class="lbl">'+esc(k[0])+'</span><span class="v">'+(k[1]==null?'—':fmt(k[1]))+'</span><span class="d">'+esc(k[2])+'</span></div>'}).join('')+'</div>'+
       '<div class="grid g2"><section class="panel"><header><h2>État des services</h2><button class="btn sm" data-act="refreshHealth">Actualiser</button></header><div class="list">'+checks.map(function(h){return '<div class="li"><span class="dot '+(h.s==='ok'?'':h.s)+'"></span><span><b>'+esc(h.n)+'</b><br><small class="faint">'+esc(h.d)+'</small></span></div>'}).join('')+'</div></section>'+
-      '<section class="panel"><header><h2>Contenus enregistrés</h2></header><div class="list">'+[['Encarts',m.cards],['Actualités',m.news],['Events',m.events],['Candidatures',m.applications],['Partenaires',m.partners]].map(function(x){return '<div class="li"><span>'+esc(x[0])+'</span><b style="margin-left:auto">'+fmt(x[1]||0)+'</b></div>'}).join('')+'</div></section></div>';
+      '<section class="panel"><header><h2>Contenus enregistrés</h2></header><div class="list">'+[['Encarts',m.cards],['Actualités',m.news],['Events',m.events],['Candidatures',m.applications],['Partenaires',m.partners]].map(function(x){return '<div class="li"><span>'+esc(x[0])+'</span><b style="margin-left:auto">'+(x[1]==null?'—':fmt(x[1]))+'</b></div>'}).join('')+'</div></section></div>';
   }
   var s=DB.stats, open=DB.reports.filter(function(r){return r.state==='open'}).length, apps=DB.events.reduce(function(a,e){return a+e.apps.length},0);
   var sales=s.sales7.reduce(function(a,b){return a+b},0);
   var kp=[
     ['Joueurs en ligne',fmt(s.online),'Pic du jour <b>'+fmt(s.onlinePeak)+'</b>'],
     ['Version stable adoptée',DB.channels.stable.adoption+' %','ReLaunch <b>'+esc(DB.channels.stable.cur)+'</b>'],
-    ['Ventes sur 7 jours',fmt(sales)+' cr.','<b>+12 %</b> par rapport à la semaine passée']
+    ['Ventes sur 7 jours',fmt(sales)+' cr.','Données de vente non disponibles en simulation']
   ];
   var todo=[
     [open+' signalement'+(open>1?'s':'')+' à traiter','reports',open?'warn':'off'],
@@ -5466,11 +5515,11 @@ SEC.overview=function(){
   ];
   return '<div class="grid g4">'+kp.map(function(k){return '<div class="panel kpi"><span class="lbl">'+k[0]+'</span><span class="v">'+k[1]+'</span><span class="d">'+k[2]+'</span></div>'}).join('')+'</div>'+
   '<div class="grid g21">'+
-    '<section class="panel"><header><div><h2>Joueurs en ligne</h2><p>Dernières 24 heures, toutes instances ReLaunch</p></div><span class="tag">'+fmt(s.online)+' maintenant</span></header>'+lineChart(s.players24,[[0,'il y a 24 h'],[6,'-18 h'],[12,'-12 h'],[18,'-6 h'],[23,'maintenant']])+'</section>'+
+    '<section class="panel"><header><div><h2>Joueurs en ligne</h2><p>Dernières 24 heures, toutes instances ReLaunch</p></div><span class="tag">'+fmt(s.online)+' maintenant</span></header>'+(s.players24.length?lineChart(s.players24,[[0,'il y a 24 h'],[6,'-18 h'],[12,'-12 h'],[18,'-6 h'],[23,'maintenant']]):'<div class="empty">Aucune donnée de joueurs disponible.</div>')+'</section>'+
     '<section class="panel"><header><h2>État des services</h2><button class="btn sm" data-act="refreshHealth">Actualiser</button></header><div class="list">'+DB.health.map(function(h){return '<div class="li"><span class="dot '+(h.s==='ok'?'':h.s)+'"></span><span><b>'+esc(h.n)+'</b><br><small class="faint">'+esc(h.d)+'</small></span></div>'}).join('')+'</div></section>'+
   '</div>'+
   '<div class="grid g21">'+
-    '<section class="panel"><header><div><h2>Ventes du shop</h2><p>Crédits dépensés par jour</p></div></header>'+barChart(s.sales7,['sam.','dim.','lun.','mar.','mer.','jeu.','ven.'],'crédits')+'</section>'+
+    '<section class="panel"><header><div><h2>Ventes du shop</h2><p>Crédits dépensés par jour</p></div></header>'+(s.sales7.length?barChart(s.sales7,['sam.','dim.','lun.','mar.','mer.','jeu.','ven.'],'crédits'):'<div class="empty">Aucune donnée de vente disponible.</div>')+'</section>'+
     '<section class="panel"><header><h2>À traiter</h2></header><div class="list">'+todo.map(function(t){return '<div class="li"><span class="dot '+(t[2]==='acc'?'':t[2])+'"></span><span>'+esc(t[0])+'</span><button class="btn sm ghost" style="margin-left:auto" data-go="'+t[1]+'">Ouvrir</button></div>'}).join('')+'</div></section>'+
   '</div>';
 };
@@ -5667,10 +5716,10 @@ function clone(o){return JSON.parse(JSON.stringify(o))}
 var VER_RE=/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
 
 var DR={};
-DR.rollout=function(d){var c=DB.channels[d.ch],pop={stable:15200,beta:2180,interne:24}[d.ch];
+DR.rollout=function(d){var c=DB.channels[d.ch];
   return {title:'Déploiement · canal '+CH_LABEL[d.ch],
     body:'<p class="soft">Version <b class="mono">'+esc(c.cur)+'</b>. Le pourcentage décide quelle part des launchers du canal reçoit la mise à jour au prochain démarrage.</p>'+
-      F('Part des joueurs : <b id="roV">'+d.draft.pct+' %</b>','<input type="range" min="0" max="100" step="1" data-k="pct" value="'+d.draft.pct+'">','Environ <b id="roN">'+fmt(Math.round(pop*d.draft.pct/100))+'</b> launchers sur '+fmt(pop))+
+      F('Part des joueurs : <b id="roV">'+d.draft.pct+' %</b>','<input type="range" min="0" max="100" step="1" data-k="pct" value="'+d.draft.pct+'">','Le Worker applique ce pourcentage aux launchers enregistrés sur ce canal.')+
       '<div class="row">'+[1,5,10,25,50,100].map(function(p){return '<button class="btn sm'+(d.draft.pct===p?' pri':'')+'" data-act="dset" data-k="pct" data-v="'+p+'">'+p+' %</button>'}).join('')+'</div>'+
       '<div class="panel" style="background:var(--panel-2)"><span class="lbl">Garde-fou</span><p class="sub">Si le taux de plantage dépasse 2 % des sessions, le Worker met le déploiement en pause tout seul.</p></div>',
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="rolloutSave">Appliquer '+d.draft.pct+' %</button>'};
@@ -5754,7 +5803,7 @@ DR.partner=function(d){var x=d.draft;
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="partnerSave">Enregistrer</button>'};
 };
 var LIVE={
-  rollout:function(d){var pop={stable:15200,beta:2180,interne:24}[d.ch];$('roV').textContent=d.draft.pct+' %';$('roN').textContent=fmt(Math.round(pop*d.draft.pct/100));var b=document.querySelector('[data-act="rolloutSave"]');if(b)b.textContent='Appliquer '+d.draft.pct+' %'},
+  rollout:function(d){$('roV').textContent=d.draft.pct+' %';var b=document.querySelector('[data-act="rolloutSave"]');if(b)b.textContent='Appliquer '+d.draft.pct+' %'},
   release:function(d){var p=$('relPrev');if(p)p.innerHTML=md(d.draft.notes||'*Aperçu des notes*')},
   notes:function(d){$('notesPrev').innerHTML=md(d.draft.notes)},
   card:function(d){$('cardPrev').innerHTML=cardPreview(d.draft)},
@@ -5871,10 +5920,10 @@ ACT.cfgCheck=function(){var r=parseCfg(),m=$('cfgMsg');if(r.err){m.innerHTML='<s
 ACT.cfgPublish=async function(b){var r=parseCfg();if(r.err){ACT.cfgCheck();toast('JSON invalide',r.err,'err');return}
   var nv=DB.config.version+1;
   if(!(await confirmBox({title:'Publier la configuration v'+nv+' ?',text:'Les launchers la récupèrent au prochain démarrage ou dans les 5 minutes.',ok:'Publier v'+nv,danger:true,word:'v'+nv})))return;
-  run(b,'configPublish',{},{version:nv,config:r.ok},{ok:'Configuration v'+nv+' publiée',target:'v'+nv,after:function(){DB.config.json=JSON.stringify(r.ok,null,2);DB.config.version=nv;DB.config.history.unshift({v:nv,t:nowStr(),who:'Rexi_de_la_mort',d:'Publication depuis le panel'})}})};
+  run(b,'configPublish',{},{version:nv,config:r.ok},{ok:'Configuration v'+nv+' publiée',target:'v'+nv,after:function(){DB.config.json=JSON.stringify(r.ok,null,2);DB.config.version=nv;DB.config.history.unshift({v:nv,t:nowStr(),who:'Administrateur',d:'Configuration publiée depuis le panel'})}})};
 ACT.cfgRestore=async function(b){var v=+b.dataset.v,nv=DB.config.version+1;
   if(!(await confirmBox({title:'Restaurer la v'+v+' ?',text:'Elle sera republiée en v'+nv+'.',ok:'Restaurer',danger:true})))return;
-  run(b,'configRestore',{version:v},{},{ok:'v'+v+' restaurée en v'+nv,target:'v'+v+' → v'+nv,after:function(){DB.config.version=nv;DB.config.history.unshift({v:nv,t:nowStr(),who:'Rexi_de_la_mort',d:'Restauration de la v'+v})}})};
+  run(b,'configRestore',{version:v},{},{ok:'v'+v+' restaurée en v'+nv,target:'v'+v+' → v'+nv,after:function(){DB.config.version=nv;DB.config.history.unshift({v:nv,t:nowStr(),who:'Administrateur',d:'Restauration de la v'+v})}})};
 ACT.maintToggle=function(b){var m=DB.maintenance;run(b,'maintenance',{},{enabled:!m.on,level:m.level,text:m.text,blockLaunch:m.block},{ok:m.on?'Bandeau retiré':'Bandeau affiché dans le launcher',target:m.on?'retiré':'affiché',after:function(){m.on=!m.on}})};
 ACT.maintLevel=function(b){var m=DB.maintenance;m.text=$('maintText').value;m.block=$('maintBlock').checked;m.level=b.dataset.v;render()};
 ACT.maintSave=function(b){var m=DB.maintenance,t=$('maintText').value.trim(),blk=$('maintBlock').checked;if(!t){toast('Message vide','Écris le texte du bandeau.','err');return}
@@ -5928,7 +5977,7 @@ ACT.lskinSave=function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);
   run(b,nw?'lskinCreate':'lskinSave',{id:d.id},payload,{ok:'Skin « '+(x.n||k.n)+' » enregistré',target:x.n||k.n,close:true,after:function(res){
     if(nw){var record=res.record||{};DB.lskins.push(Object.assign({id:res.id,n:x.n,owners:0},record,{id:res.id,how:how,price:x.uShop?+x.price:0,lg:x.lg,mat:x.mat,themed:x.themed==='1'||x.themed===true}))}
     else{k.status=x.status;k.how=how;k.price=x.uShop?+x.price:0;k.lg=x.lg;k.mat=x.mat;k.themed=x.themed==='1'||x.themed===true}}})};
-ACT.openGrant=function(){openDrawer({kind:'grant',draft:{player:'',skin:'wave',reason:'',err:''}})};
+ACT.openGrant=function(){openDrawer({kind:'grant',draft:{player:'',skin:DB.lskins[0]?.id||'',reason:'',err:''}})};
 ACT.grantSave=function(b){var x=S.drawer.draft,k=byId(DB.lskins,x.skin);x.err='';
   if(!x.player.trim())x.err='indique le pseudo ou l\'identifiant ReLink du joueur.';else if(!x.reason.trim())x.err='indique un motif.';
   if(x.err){renderDrawer();return}
@@ -5965,7 +6014,7 @@ ACT.serverSave=function(b){var d=S.drawer,x=d.draft,s=byId(DB.servers,d.id),nw=!
     else Object.assign(s,{n:x.n,host:x.host,max:+x.max,pack:x.pack,event:x.event})}})};
 
 /* -- Events -- */
-ACT.openEvent=function(b){var id=b.dataset.id,e=id?clone(byId(DB.events,id)):{n:'',date:'',server:'s1',pack:'m5',slots:100,state:'draft',desc:'',card:true,apps:[]};e.err='';openDrawer({kind:'event',id:id||null,draft:e})};
+ACT.openEvent=function(b){var id=b.dataset.id,e=id?clone(byId(DB.events,id)):{n:'',date:'',server:'',pack:'',slots:100,state:'draft',desc:'',card:true,apps:[]};e.err='';openDrawer({kind:'event',id:id||null,draft:e})};
 ACT.eventSave=function(b){var d=S.drawer,x=d.draft;x.err='';if(!x.n.trim())x.err='donne un nom à l\'event.';else if(!x.date)x.err='choisis la date et l\'heure.';if(x.err){renderDrawer();return}
   var nw=!d.id;run(b,nw?'eventCreate':'eventSave',{id:d.id},x,{ok:nw?'Event créé'+(x.card?' avec son encart':''):'Event enregistré',target:x.n,close:true,after:function(){
     var e={id:d.id||uid('e'),n:x.n,date:x.date,server:x.server,pack:x.pack,state:x.state,slots:+x.slots,desc:x.desc,apps:nw?[]:byId(DB.events,d.id).apps};
@@ -5983,8 +6032,8 @@ ACT.partnerSave=function(b){var d=S.drawer,x=d.draft;x.err='';if(!x.n.trim())x.e
 
 /* -- Modération -- */
 ACT.repF=function(b){S.f.rep=b.dataset.v;render()};
-ACT.repAssign=function(b){var r=byId(DB.reports,b.dataset.id);run(b,'report',{id:r.id},{action:'assign'},{ok:'Signalement assigné à toi',target:r.who+' · '+r.reason,after:function(){r.state='assigned';r.assignee='Rexi_de_la_mort'}})};
-ACT.repClose=function(b){var r=byId(DB.reports,b.dataset.id);run(b,'report',{id:r.id},{action:'close'},{ok:'Signalement classé sans suite',target:r.who+' · '+r.reason,after:function(){r.state='closed';r.assignee=r.assignee||'Rexi_de_la_mort'}})};
+ACT.repAssign=function(b){var r=byId(DB.reports,b.dataset.id);run(b,'report',{id:r.id},{action:'assign'},{ok:'Signalement assigné',target:r.who+' · '+r.reason,after:function(){r.state='assigned';r.assignee='Administrateur'}})};
+ACT.repClose=function(b){var r=byId(DB.reports,b.dataset.id);run(b,'report',{id:r.id},{action:'close'},{ok:'Signalement classé sans suite',target:r.who+' · '+r.reason,after:function(){r.state='closed';r.assignee=r.assignee||'Administrateur'}})};
 ACT.repSanction=function(b){var r=byId(DB.reports,b.dataset.id);toast('Sanction à appliquer depuis Utilisateurs','Compte : '+r.who);window.showPage('users')};
 
 function copyText(txt,what){
@@ -5993,7 +6042,7 @@ function copyText(txt,what){
 }
 
 /* -- Intégration -- */
-ACT.simToggle=function(){CFG.simulate=!CFG.simulate;lsSet('rla-sim',CFG.simulate);if(CFG.simulate)stateLoaded=false;else{stateLoaded=false;stateLoadError=''}toast(CFG.simulate?'Mode simulation activé':'Simulation coupée',CFG.simulate?'Rien n\'est envoyé au Worker.':'Les données vont être chargées depuis le Worker ReLink.');render()};
+ACT.simToggle=function(){CFG.simulate=!CFG.simulate;lsSet('rla-sim-v2',CFG.simulate);if(CFG.simulate)stateLoaded=false;else{stateLoaded=false;stateLoadError=''}toast(CFG.simulate?'Mode simulation activé':'Simulation coupée',CFG.simulate?'Rien n\'est envoyé au Worker.':'Les données vont être chargées depuis le Worker ReLink.');render()};
 ACT.routesCopy=function(){copyText(Object.keys(ROUTES).map(function(k){return ROUTES[k][0]+' '+ROUTES[k][1]}).join('\n'),'Les routes')};
 
 
