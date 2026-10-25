@@ -5156,6 +5156,8 @@ var ROUTES={
   releaseCreate:['POST','/admin/releases','Publier une version en envoyant l’installeur (stockage R2, 94 Mio maximum)'],
   releasesGithub:['GET','/admin/releases/github','Lister les brouillons de release compilés par GitHub'],
   releaseFromGithub:['POST','/admin/releases/github','Publier aux joueurs une release compilée et signée par GitHub'],
+  packFileUpload:['POST','/admin/launcher/pack-files','Héberger un mod d’event signé (utilisable dans les manifestes)'],
+  mcSkinDelete:['DELETE','/admin/mc-skins/:id','Retirer le skin Minecraft d’un joueur (modération)'],
   rollout:['PATCH','/admin/channels/:channel/rollout','Changer le pourcentage de déploiement d\'un canal'],
   pause:['POST','/admin/channels/:channel/pause','Mettre en pause le déploiement d\'un canal'],
   resume:['POST','/admin/channels/:channel/resume','Reprendre le déploiement d\'un canal'],
@@ -5205,6 +5207,12 @@ var ROUTES={
   launcherNews:['GET','/launcher/news','API publique : actualités publiées'],
   launcherUpdates:['GET','/launcher/updates?channel=stable&installId=<uuid>','API publique : mise à jour compatible avec le déploiement progressif'],
   launcherNotifications:['GET','/launcher/notifications?deviceId=<uuid>&channel=stable','API publique : notifications destinées à cette installation'],
+  launcherAuthConfig:['GET','/launcher/auth/config','API publique : paramètres de connexion Discord du launcher'],
+  launcherAuthDiscord:['POST','/launcher/auth/discord','API publique : échange du code Discord contre une session ReLink'],
+  launcherMe:['GET','/launcher/me','API joueur (Bearer) : compte, skins possédés, skin Minecraft'],
+  launcherMcSkin:['PUT','/launcher/me/mcskin','API joueur (Bearer) : envoyer son skin Minecraft (PNG 64×64)'],
+  launcherMcSkinProfile:['GET','/launcher/mcskin/csl/:name.json','API publique : profil CustomSkinLoader d’un joueur'],
+  launcherPackLookup:['POST','/launcher/pack-files/lookup','API publique : retrouver des mods hébergés par SHA-512'],
   launcherAsset:['GET','/launcher/assets/:id','Téléchargement public (release, manifeste, overrides, skin) avec Range'],
   launcherAssetSignature:['GET','/launcher/assets/:id?signature=1','Signature Ed25519 détachée pour vérifier le téléchargement'],
 };
@@ -5321,6 +5329,7 @@ var IC={
 var CARDTYPES={event:['Event','#ea580c'],content:['Contenu','#7c3aed'],maj:['MAJ','#16a34a'],discover:['À découvrir','#0284c7'],social:['Réseaux','#db2777'],shop:['Shop','#ca8a04'],video:['Vidéo','#dc2626']};
 var DEST={wecraft:'WeCraft',relaunch:'ReLaunch (events)',welive:'WeLive',live:'Diffusion partenaires',shop:'Shop ReLink',news:'Info & News',discover:'Découvrir',url:'Lien externe'};
 var DB={
+  packFiles:[],mcSkins:[],
   stats:{online:1284,onlinePeak:1712,accounts:18452,accountsToday:126,sales7:[5200,6100,4800,7400,6900,8200,7700],players24:[640,590,520,470,430,410,420,460,540,610,690,760,820,880,930,990,1060,1180,1320,1480,1650,1712,1540,1284]},
   health:[
     {n:'CDN des modpacks',s:'ok',d:'312 Go servis cette semaine'},
@@ -5548,9 +5557,9 @@ SEC.updates=function(){
   var storage=DB.storage,storageRows=storage&&storage.artifacts?storage.artifacts.map(function(a){
     return '<tr><td>'+esc(a.title)+'</td><td>'+(STORE_TYPE[a.type]||a.type)+'</td><td>'+(STORE_WHERE[a.storage]||'R2')+'</td><td class="num">'+formatStorageBytes(a.bytes)+'</td><td>'+(a.active?st('warn','Utilisé'):st('off','Inactif'))+'</td><td class="num">'+(a.active?'<span class="faint">Actif</span>':'<button class="btn sm danger" data-act="storageDelete" data-type="'+esc(a.type)+'" data-id="'+esc(a.id)+'" data-title="'+esc(a.title)+'">Supprimer</button>')+'</td></tr>';
   }).join(''):'';
-  var storagePanel='<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Stockage des fichiers ReLaunch</h2><p>'+(storage&&storage.mode==='github'?'Skins et modpacks dans GitHub (<span class="mono">'+esc(storage.githubRepo)+'</span>, gratuit). R2 ne garde que les bannières (10 Go).':storage&&storage.mode==='unconfigured'?'Stockage GitHub demandé mais RELAUNCH_GITHUB_TOKEN ou RELAUNCH_GITHUB_REPO manque.':'Bucket R2 relaunchr2, quota strict de 10 Go. Configure RELAUNCH_GITHUB_TOKEN et RELAUNCH_GITHUB_REPO pour stocker les fichiers dans GitHub.')+'</p></div><button class="btn sm" data-act="storageRefresh"'+(CFG.simulate?' disabled':'')+'>Actualiser</button></header>'+
+  var storagePanel='<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Stockage des fichiers ReLaunch</h2><p>'+(storage&&storage.mode==='remote'?'Machine de stockage dédiée':storage&&storage.mode==='unconfigured'?'Machine dédiée demandée mais RELAUNCH_STORAGE_URL ou RELAUNCH_STORAGE_TOKEN manque.':'Bucket R2 relaunchr2')+(storage?' · quota '+formatStorageBytes(storage.quotaBytes):'')+(storage&&storage.keepVersions?' · '+storage.keepVersions+' versions gardées au maximum':'')+'. Les installeurs du launcher restent sur GitHub.</p></div><button class="btn sm" data-act="storageRefresh"'+(CFG.simulate?' disabled':'')+'>Actualiser</button></header>'+
     (CFG.simulate?'<div class="simnote">Désactive le mode simulation pour consulter le stockage réel et supprimer des fichiers.</div>':storage?
-      '<div style="padding:0 16px 14px"><div class="spread"><b>'+formatStorageBytes(storage.usedBytes)+' utilisés</b><span class="faint">sur '+formatStorageBytes(storage.quotaBytes)+'</span></div><div class="bar"><i style="width:'+Math.min(100,storage.quotaBytes?storage.usedBytes/storage.quotaBytes*100:0)+'%"></i></div><small class="faint">R2 : '+fmt(storage.objectCount)+' objet(s)'+(storage.githubBytes?' · GitHub : '+formatStorageBytes(storage.githubBytes):'')+'</small></div>'+
+      '<div style="padding:0 16px 14px"><div class="spread"><b>'+formatStorageBytes(storage.usedBytes)+' utilisés</b><span class="faint">sur '+formatStorageBytes(storage.quotaBytes)+'</span></div><div class="bar"><i style="width:'+Math.min(100,storage.quotaBytes?storage.usedBytes/storage.quotaBytes*100:0)+'%"></i></div><small class="faint">'+fmt(storage.objectCount)+' objet(s) stocké(s)</small></div>'+
       '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Contenu</th><th>Type</th><th>Stockage</th><th>Taille</th><th>État</th><th></th></tr></thead><tbody>'+(storageRows||'<tr><td colspan="6" class="faint">Aucun fichier à afficher.</td></tr>')+'</tbody></table></div>':
       '<div class="simnote">Clique sur « Actualiser » pour lister les fichiers et l’espace utilisé.</div>')+'</section>';
   return (u.kill?'<div class="simnote" style="border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.08);color:#fecdd3"><b style="color:#fda4af">Arrêt d\'urgence actif.</b> Aucun launcher ne reçoit de mise à jour tant qu\'il reste activé.</div>':'')+
@@ -5647,6 +5656,15 @@ SEC.modpacks=function(){
       '<td><div class="acts"><button class="btn sm ghost" data-act="packVerify" data-i="'+i+'">Vérifier</button><button class="btn sm" data-act="openPack" data-id="'+m.id+'">'+IC.upload+'Nouvelle version</button></div></td></tr>'}).join('')+'</tbody></table></div>';
 };
 
+var SEC_modpacksBase=SEC.modpacks;
+SEC.modpacks=function(){
+  var rows=DB.packFiles.map(function(f){var url=WORKER_ORIGIN()+'/launcher/assets/'+encodeURIComponent(f.id);
+    return '<tr><td><b>'+esc(f.label||f.filename)+'</b><br><small class="faint mono">'+esc(f.filename)+'</small></td><td>'+esc(f.event||'—')+'</td><td class="num">'+formatStorageBytes(f.size)+'</td><td><span class="hash" title="'+esc(f.sha512)+'">'+esc(String(f.sha512||'').slice(0,12))+'…</span></td><td><div class="acts"><button class="btn sm ghost" data-act="packFileCopy" data-url="'+esc(url)+'">Copier l’adresse</button></div></td></tr>'}).join('');
+  return SEC_modpacksBase()+'<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Mods hébergés (events)</h2><p>Mods développés pour nos events, signés et servis par le Worker. tools/relaunch-pack.mjs les retrouve tout seul par leur empreinte.</p></div><button class="btn pri" data-act="openPackFile">'+IC.upload+'Héberger un mod</button></header>'+
+    '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Mod</th><th>Event</th><th>Taille</th><th>SHA-512</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="faint">Aucun mod hébergé.</td></tr>')+'</tbody></table></div></section>';
+};
+function WORKER_ORIGIN(){try{return String(window.WORKER_URL||(typeof WORKER_URL!=='undefined'?WORKER_URL:'')).replace(/\/+$/,'')}catch(e){return ''}}
+
 /* ---------- Serveurs ---------- */
 var SVST={online:['ok','En ligne'],maintenance:['warn','Maintenance'],offline:['bad','Hors ligne']};
 function packName(id){var m=DB.modpacks.filter(function(x){return x.id===id})[0];return m?m.n:'—'}
@@ -5689,6 +5707,14 @@ SEC.reports=function(){
     return '<tr><td><b>'+esc(r.who)+'</b></td><td>'+esc(r.reason)+'</td><td>'+esc(r.where)+'</td><td>'+esc(r.by)+'</td><td>'+esc(r.when)+'</td><td>'+st(s[0],s[1]+(r.assignee?' · '+r.assignee:''))+'</td>'+
     '<td><div class="acts">'+(r.state!=='closed'?(r.state==='open'?'<button class="btn sm ghost" data-act="repAssign" data-id="'+r.id+'">M\'assigner</button>':'')+'<button class="btn sm" data-act="repSanction" data-id="'+r.id+'">Sanctionner</button><button class="btn sm ghost" data-act="repClose" data-id="'+r.id+'">Classer</button>':'')+'</div></td></tr>'}).join('')||'<tr><td colspan="7" class="empty">Aucun signalement ici.</td></tr>')+'</tbody></table></div>';
 };
+var SEC_reportsBase=SEC.reports;
+SEC.reports=function(){
+  var rows=DB.mcSkins.slice().sort(function(a,b){return String(b.updatedAt||'').localeCompare(String(a.updatedAt||''))}).slice(0,100).map(function(k){
+    return '<tr><td class="mono">'+esc(k.id)+'</td><td>'+(k.model==='slim'?'Fin (Alex)':'Classique (Steve)')+'</td><td class="num">'+esc(String(k.updatedAt||'').replace('T',' ').slice(0,16))+'</td><td><a class="btn sm ghost" href="'+esc(WORKER_ORIGIN()+'/launcher/mcskin/textures/'+k.sha256)+'" target="_blank" rel="noopener noreferrer">Voir</a></td><td><div class="acts"><button class="btn sm danger" data-act="mcSkinDelete" data-id="'+esc(k.id)+'">Retirer</button></div></td></tr>'}).join('');
+  return SEC_reportsBase()+'<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Skins Minecraft des joueurs</h2><p>Envoyés depuis le launcher. Retire un skin inapproprié : le joueur repasse au skin par défaut.</p></div></header>'+
+    '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Compte (Discord)</th><th>Modèle</th><th>Envoyé</th><th>Image</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="faint">Aucun skin envoyé.</td></tr>')+'</tbody></table></div></section>';
+};
+
 
 /* ---------- Shop ---------- */
 /* ---------- Intégration (connexion partagée avec ReLink) ---------- */
@@ -5723,8 +5749,8 @@ function clone(o){return JSON.parse(JSON.stringify(o))}
 var VER_RE=/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
 
 var DR={};
-var STORE_TYPE={release:'Release du launcher',modpack:'Modpack (manifeste)',skin:'Fichier de skin',banner:'Image de bannière',orphan:'Fichier orphelin'};
-var STORE_WHERE={github:'GitHub','github-release':'GitHub (release)',r2:'R2'};
+var STORE_TYPE={release:'Release du launcher',modpack:'Modpack (manifeste)',skin:'Fichier de skin',packfile:'Mod hébergé',mcskins:'Skins Minecraft',banner:'Image de bannière',orphan:'Fichier orphelin'};
+var STORE_WHERE={'github-release':'GitHub (release)',r2:'R2',remote:'Machine dédiée'};
 DR.rollout=function(d){var c=DB.channels[d.ch];
   return {title:'Déploiement · canal '+CH_LABEL[d.ch],
     body:'<p class="soft">Version <b class="mono">'+esc(c.cur)+'</b>. Le pourcentage décide quelle part des launchers du canal reçoit la mise à jour au prochain démarrage.</p>'+
@@ -5742,13 +5768,13 @@ DR.release=function(d){var x=d.draft,gh=x.gh||[],sel=gh.filter(function(r){retur
     '<div class="row"><button class="btn sm" data-act="ghLoad">'+(gh.length?'Actualiser la liste':'Charger les releases GitHub')+'</button>'+(x.ghErr?'<span class="faint">'+esc(x.ghErr)+'</span>':'')+'</div>'+
     (gh.length?'<div class="two">'+F('Release',SEL('tag',x.tag,gh.map(function(r){return [r.tag,r.tag+(r.draft?' · brouillon':r.prerelease?' · préversion':'')+(r.imported?' · déjà publiée':'')]}),true))+F('Canal',SEL('ch',x.ch,[['interne','Interne'],['beta','Bêta'],['stable','Stable']]),'Actuelle : '+esc(DB.channels[x.ch].cur))+'</div>'+
       (sel?'<div class="panel" style="background:var(--panel-2)"><dl><dt>Installeur</dt><dd>ReLaunch.exe · '+sizeOf(sel.size)+'</dd><dt>Signature</dt><dd>'+(sel.hasSignature&&sel.hasSha256?st('ok','.sig et .sha256 présents'):st('bad','Fichiers de signature absents'))+'</dd><dt>Créée</dt><dd>'+esc(sel.createdAt||'')+'</dd></dl></div>':'')+
-      CHK('githubLatest',x.githubLatest,'Marquer aussi « Latest » sur GitHub (sinon : préversion, invisible des anciens launchers Python)'):'')
+      '<p class="sub">Canal stable : la release devient « Latest » sur GitHub et tous les launchers la reçoivent. Bêta et interne : préversion, reçue seulement par les joueurs qui ont activé « Participer à la bêta ». Le pourcentage de déploiement ne s’applique pas tant que le launcher lit GitHub.</p>':'')
     :'<div class="form"><div class="two">'+F('Version',I('v',x.v,'class="mono" placeholder="2.1.1"'),'Format 2.1.1 ou 2.1.1-beta.1')+F('Canal',SEL('ch',x.ch,[['interne','Interne'],['beta','Bêta'],['stable','Stable']]),'Actuelle : '+esc(DB.channels[x.ch].cur))+'</div>'+
       F('Installeur',fileBox('relFile','Installeur .exe (NSIS)','.exe,.msi,.zip',x.file?x.file+' · '+x.size:''),x.sha?'SHA-256 calculé dans ton navigateur : <span class="hash">'+x.sha+'</span>':'Le SHA-256 est calculé localement; le Worker le vérifie avant le stockage R2.')+
       F('Signature Ed25519',fileBox('relSig','Fichier .sig','.sig,.txt',x.sig||''),'Le .sig produit par la CI (version + SHA-256), vérifié avec RELAUNCH_UPDATE_PUBLIC_KEY.')+'</div>';
   var label=x.src==='github'?(x.tag||''):(x.v||'');
   return {title:'Nouvelle version du launcher',
-    body:errBox(x)+'<div class="form">'+head+body+((x.src!=='github'||gh.length)?common:'')+'</div>',
+    body:errBox(x)+'<div class="form">'+head+body+(x.src!=='github'?common:gh.length?F('Notes de version',TA('notes',x.notes,'rows="7"'))+'<div class="preview-box md" id="relPrev">'+md(x.notes||'*Aperçu des notes*')+'</div><div class="field"><span>Obligatoire</span>'+CHK('mandatory',x.mandatory,'Les joueurs ne peuvent pas la reporter')+'</div>':'')+'</div>',
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="releasePublish">'+IC.upload+'Publier '+esc(label)+'</button>'};
 };
 DR.notes=function(d){return {title:'Notes de '+d.v,body:F('Notes (Markdown simple)',TA('notes',d.draft.notes,'rows="10"'))+'<div class="preview-box md" id="notesPrev">'+md(d.draft.notes)+'</div>',foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="notesSave">Enregistrer</button>'}};
@@ -5869,6 +5895,28 @@ function closeModal(v){$('modal').hidden=true;$('mscrim').hidden=true;if(modalRe
    Actions
    ===================================================================== */
 var ACT={},CHG={},INP={},FILE={};
+/* -- Mods hébergés et skins Minecraft (modération) -- */
+DR.packFile=function(d){var x=d.draft;
+  return {title:'Héberger un mod d’event',body:errBox(x)+'<div class="form">'+F('Nom affiché',I('label',x.label,'maxlength="120" placeholder="Raz-de-marée : vagues"'))+F('Event (facultatif)',I('event',x.event,'maxlength="100" placeholder="evt_raz"'))+
+    F('Fichier',fileBox('pfFile','Mod .jar (ou .zip)','.jar,.zip',x.file?x.file+' · '+x.size:''),x.sha?'SHA-256 : <span class="hash">'+x.sha+'</span>':'90 Mio maximum.')+
+    F('Signature',fileBox('pfSig','Fichier .sig','.sig,.txt',x.sig||''),'Signé comme les skins : node tools/relaunch-pack.mjs sign <fichier>.')+'</div>',
+    foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="packFileSave">'+IC.upload+'Héberger</button>'};
+};
+ACT.openPackFile=function(){openDrawer({kind:'packFile',draft:{label:'',event:'',file:'',size:'',sha:'',sig:'',err:''}})};
+FILE.pfFile=function(f){if(f.size>90*1048576){toast('Fichier trop lourd','90 Mio maximum.','err');return}hashInto(f,S.drawer.draft)};
+FILE.pfSig=function(f){S.drawer.draft.sig=f.name;S.drawer.draft.signatureFile=f;renderDrawer()};
+ACT.packFileSave=function(b){var x=S.drawer.draft;x.err='';
+  if(!x.uploadFile)x.err='choisis le fichier du mod.';else if(!/\.(jar|zip)$/i.test(x.uploadFile.name))x.err='seuls les fichiers .jar et .zip sont acceptés.';else if(!x.signatureFile)x.err='joins la signature du fichier.';else if(exceedsStorageQuota(x.uploadFile,x.signatureFile))x.err='cet envoi dépasserait le quota de stockage.';
+  if(x.err){renderDrawer();return}
+  var form=new FormData();form.append('metadata',JSON.stringify({label:x.label||x.uploadFile.name,event:x.event||null}));form.append('file',x.uploadFile,x.uploadFile.name);form.append('signature',x.signatureFile,x.signatureFile.name);
+  run(b,'packFileUpload',{},form,{ok:function(res){return res&&res.duplicate?'Ce mod était déjà hébergé':'Mod hébergé'},target:x.label||x.uploadFile.name,close:true,after:function(res){
+    var f=res.file||{id:uid('pf'),filename:x.uploadFile.name,label:x.label,event:x.event,size:x.uploadFile.size,hashes:{}};
+    if(!DB.packFiles.some(function(p){return p.id===f.id}))DB.packFiles.unshift({id:f.id,filename:f.filename,label:f.label,event:f.event,size:f.size,sha512:(f.hashes||{}).sha512||''});
+    if(!CFG.simulate){DB.storage=null;setTimeout(function(){ACT.storageRefresh()},0)}}})};
+ACT.packFileCopy=function(b){copyText(b.dataset.url,'L’adresse')};
+ACT.mcSkinDelete=async function(b){var id=b.dataset.id;
+  if(!(await confirmBox({title:'Retirer ce skin ?',text:'Le joueur <span class="mono">'+esc(id)+'</span> repassera au skin par défaut. Il pourra en envoyer un autre.',ok:'Retirer',danger:true})))return;
+  run(b,'mcSkinDelete',{id:id},{},{ok:'Skin retiré',target:id,after:function(){DB.mcSkins=DB.mcSkins.filter(function(k){return k.id!==id})}})};
 ACT.closeDrawer=closeDrawer;
 ACT.mNo=function(){closeModal(false)};
 ACT.mYes=function(){closeModal(true)};
@@ -5930,10 +5978,10 @@ ACT.releasePublish=async function(b){var x=S.drawer.draft,c=DB.channels[x.ch];x.
     if(!r)x.err='charge la liste et choisis une release GitHub.';else if(r.imported)x.err='cette release a déjà été publiée.';else if(!r.hasSignature||!r.hasSha256)x.err='la release ne contient pas ReLaunch.exe.sig et ReLaunch.exe.sha256 : relance la CI.';
     else if(c.cur!=='—'&&cmpVer(r.version,c.cur)<=0&&r.version!==c.cur)x.err='la version doit être plus récente que '+c.cur+', la version actuelle du canal.';
     if(x.err){renderDrawer();return}
-    if(x.ch==='stable'&&!(await confirmBox({title:'Publier '+r.version+' en stable ?',text:'Elle sera proposée à '+x.pct+' % des joueurs du canal stable. La release GitHub '+esc(r.tag)+' devient téléchargeable.',ok:'Publier',danger:true,word:r.version})))return;
-    run(b,'releaseFromGithub',{},{tag:r.tag,channel:x.ch,rollout:+x.pct,mandatory:x.mandatory,notes:x.notes,githubLatest:x.githubLatest===true},{ok:'ReLaunch '+r.version+' publiée en '+CH_LABEL[x.ch].toLowerCase(),target:r.tag+' · '+CH_LABEL[x.ch].toLowerCase(),close:true,after:function(res){
-      var release=res.release||{};DB.releases.unshift({v:r.version,ch:x.ch,date:new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}),sig:true,size:sizeOf(r.size),sha:release.sha256||'',crash:0,status:+x.pct>=100?'live':'deploying',notes:x.notes});
-      c.prev=c.cur;c.cur=r.version;c.rollout=+x.pct;c.paused=false;c.adoption=0;c.crash=0}});
+    if(x.ch==='stable'&&!(await confirmBox({title:'Publier '+r.version+' en stable ?',text:'La release GitHub '+esc(r.tag)+' devient « Latest » : tous les launchers la recevront au prochain démarrage.',ok:'Publier',danger:true,word:r.version})))return;
+    run(b,'releaseFromGithub',{},{tag:r.tag,channel:x.ch,mandatory:x.mandatory,notes:x.notes},{ok:'ReLaunch '+r.version+' publiée en '+CH_LABEL[x.ch].toLowerCase(),target:r.tag+' · '+CH_LABEL[x.ch].toLowerCase(),close:true,after:function(res){
+      var release=res.release||{};DB.releases.unshift({v:r.version,ch:x.ch,date:new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}),sig:true,size:sizeOf(r.size),sha:release.sha256||'',crash:0,status:'live',notes:x.notes});
+      c.prev=c.cur;c.cur=r.version;c.rollout=100;c.paused=false;c.adoption=0;c.crash=0}});
     return}
   if(!VER_RE.test(x.v))x.err='la version doit suivre le format 2.1.1 ou 2.1.1-beta.1.';
   else if(cmpVer(x.v,c.cur)<=0&&x.v!==c.cur)x.err='la version doit être plus récente que '+c.cur+', la version actuelle du canal.';
@@ -6180,6 +6228,8 @@ function applyLauncherState(state){
   DB.servers=list('servers').map(function(item){return Object.assign({n:item.n||item.name||item.id,host:item.host||'',state:'offline',players:0,max:0,pack:'',event:''},item)});
   DB.events=list('events').map(function(item){return Object.assign({n:item.n||item.name||item.id,date:'',server:'',pack:'',slots:0,state:'draft',desc:'',apps:[]},item)});
   DB.partners=list('partners').map(function(item){return Object.assign({n:item.n||item.name||item.id,ch:'',cat:'',featured:false,live:false,viewers:0},item)});
+  DB.packFiles=list('pack_files');
+  DB.mcSkins=list('mc_skins');
   DB.reports=list('reports').map(function(item){return Object.assign({who:'',reason:'',where:'',by:'',when:'',state:'open',apps:[]},item)});
   var revisions=Array.isArray(state.revisions)?state.revisions:[];
   DB.config={version:revisions.length?revisions[0].version:0,json:revisions.length?JSON.stringify(revisions[0].config,null,2):'{}',
@@ -6190,8 +6240,8 @@ function applyLauncherState(state){
   GH_READY=(state.services||{}).github==='ok';
 }
 function healthRows(sv){return Object.keys(sv).filter(function(key){return key!=='releasesRepo'}).map(function(key){
-  if(key==='storage')return {n:'STOCKAGE',s:sv.storage==='unconfigured'?'bad':'ok',d:sv.storage==='github'?'Fichiers dans GitHub':sv.storage==='r2'?'Fichiers dans R2 (10 Go)':'GitHub demandé, secrets manquants'};
-  var ok=sv[key]==='ok';return {n:key.toUpperCase(),s:ok?'ok':'bad',d:ok?'Disponible':key==='r2'?'Binding R2 manquant':'Indisponible'}}).filter(function(r){return !(r.n==='GITHUB'&&r.s==='bad'&&sv.storage==='r2')})}
+  if(key==='storage')return {n:'STOCKAGE',s:sv.storage==='unconfigured'?'bad':'ok',d:sv.storage==='remote'?'Machine de stockage dédiée':sv.storage==='r2'?'Fichiers dans R2':'Machine dédiée demandée, réglages manquants'};
+  var ok=sv[key]==='ok';return {n:key==='github'?'GITHUB (RELEASES)':key==='discord'?'CONNEXION DISCORD':key.toUpperCase(),s:ok?'ok':'bad',d:ok?'Disponible':key==='r2'?'Binding R2 manquant':key==='github'?'RELAUNCH_GITHUB_TOKEN manquant':key==='discord'?'DISCORD_CLIENT_ID manquant':'Indisponible'}})}
 async function loadLauncherState(){
   if(CFG.simulate||stateLoaded||stateLoading)return;
   stateLoading=true;stateLoadError='';
