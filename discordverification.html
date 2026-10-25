@@ -5185,6 +5185,8 @@ var ROUTES={
   lskinCreate:['POST','/admin/launcher-skins','Créer un skin du launcher'],
   lskinGrant:['POST','/admin/launcher-skins/:id/grant','Offrir un skin du launcher à un joueur'],
   lskinFile:['POST','/admin/launcher-skins/:id/file','Publier le fichier .rlskin signé d’un skin'],
+  lskinCodes:['POST','/admin/launcher-skins/:id/codes','Générer des codes de déblocage d’un skin (events, succès…)'],
+  lskinCodesRevoke:['DELETE','/admin/skin-codes/:id','Désactiver un lot de codes de déblocage'],
   lskinFileRemove:['DELETE','/admin/launcher-skins/:id/file','Retirer le fichier publié d’un skin'],
   modpackVersion:['POST','/admin/modpacks/:id/versions','Publier une version de modpack (manifeste relaunch-pack signé + overrides)'],
   modpackSave:['PATCH','/admin/modpacks/:id','Modifier ou masquer un modpack'],
@@ -5209,6 +5211,8 @@ var ROUTES={
   launcherNotifications:['GET','/launcher/notifications?deviceId=<uuid>&channel=stable','API publique : notifications destinées à cette installation'],
   launcherAuthConfig:['GET','/launcher/auth/config','API publique : paramètres de connexion Discord du launcher'],
   launcherAuthDiscord:['POST','/launcher/auth/discord','API publique : échange du code Discord contre une session ReLink'],
+  launcherSkinBuy:['POST','/launcher/skins/:id/buy','API joueur (Bearer) : acheter un skin en éclats'],
+  launcherSkinRedeem:['POST','/launcher/skins/redeem','API joueur (Bearer) : débloquer un skin avec un code'],
   launcherMe:['GET','/launcher/me','API joueur (Bearer) : compte, skins possédés, skin Minecraft'],
   launcherMcSkin:['PUT','/launcher/me/mcskin','API joueur (Bearer) : envoyer son skin Minecraft (PNG 64×64)'],
   launcherMcSkinProfile:['GET','/launcher/mcskin/csl/:name.json','API publique : profil CustomSkinLoader d’un joueur'],
@@ -5329,7 +5333,7 @@ var IC={
 var CARDTYPES={event:['Event','#ea580c'],content:['Contenu','#7c3aed'],maj:['MAJ','#16a34a'],discover:['À découvrir','#0284c7'],social:['Réseaux','#db2777'],shop:['Shop','#ca8a04'],video:['Vidéo','#dc2626']};
 var DEST={wecraft:'WeCraft',relaunch:'ReLaunch (events)',welive:'WeLive',live:'Diffusion partenaires',shop:'Shop ReLink',news:'Info & News',discover:'Découvrir',url:'Lien externe'};
 var DB={
-  packFiles:[],mcSkins:[],
+  packFiles:[],mcSkins:[],skinCodes:[],
   stats:{online:1284,onlinePeak:1712,accounts:18452,accountsToday:126,sales7:[5200,6100,4800,7400,6900,8200,7700],players24:[640,590,520,470,430,410,420,460,540,610,690,760,820,880,930,990,1060,1180,1320,1480,1650,1712,1540,1284]},
   health:[
     {n:'CDN des modpacks',s:'ok',d:'312 Go servis cette semaine'},
@@ -5489,7 +5493,7 @@ function barChart(vals,labels,unit){
   function y(v){return pt+(H-pt-pb)*(1-v/max)}
   var g='';[0,max/2,max].forEach(function(t){g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(t)+'" y2="'+y(t)+'" stroke="rgba(255,255,255,.07)"/><text x="'+(pl-8)+'" y="'+(y(t)+3)+'" text-anchor="end">'+fmt(t)+'</text>'});
   var b=vals.map(function(v,i){var bx=pl+i*bw+bw*.18,last=i===n-1;return '<rect x="'+bx.toFixed(1)+'" y="'+y(v).toFixed(1)+'" width="'+(bw*.64).toFixed(1)+'" height="'+(y(0)-y(v)).toFixed(1)+'" rx="3" fill="'+(last?'#8c99fa':'rgba(92,110,247,.55)')+'"><title>'+labels[i]+' : '+fmt(v)+' '+unit+'</title></rect><text x="'+(pl+i*bw+bw/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">'+labels[i]+'</text>'}).join('');
-  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Ventes sur 7 jours en crédits">'+g+b+'</svg>';
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Ventes sur 7 jours en éclats">'+g+b+'</svg>';
 }
 
 /* =====================================================================
@@ -5519,7 +5523,7 @@ SEC.overview=function(){
   var kp=[
     ['Joueurs en ligne',fmt(s.online),'Pic du jour <b>'+fmt(s.onlinePeak)+'</b>'],
     ['Version stable adoptée',DB.channels.stable.adoption+' %','ReLaunch <b>'+esc(DB.channels.stable.cur)+'</b>'],
-    ['Ventes sur 7 jours',fmt(sales)+' cr.','Données de vente non disponibles en simulation']
+    ['Ventes sur 7 jours',fmt(sales)+' éclats','Données de vente non disponibles en simulation']
   ];
   var todo=[
     [open+' signalement'+(open>1?'s':'')+' à traiter','reports',open?'warn':'off'],
@@ -5533,7 +5537,7 @@ SEC.overview=function(){
     '<section class="panel"><header><h2>État des services</h2><button class="btn sm" data-act="refreshHealth">Actualiser</button></header><div class="list">'+DB.health.map(function(h){return '<div class="li"><span class="dot '+(h.s==='ok'?'':h.s)+'"></span><span><b>'+esc(h.n)+'</b><br><small class="faint">'+esc(h.d)+'</small></span></div>'}).join('')+'</div></section>'+
   '</div>'+
   '<div class="grid g21">'+
-    '<section class="panel"><header><div><h2>Ventes du shop</h2><p>Crédits dépensés par jour</p></div></header>'+(s.sales7.length?barChart(s.sales7,['sam.','dim.','lun.','mar.','mer.','jeu.','ven.'],'crédits'):'<div class="empty">Aucune donnée de vente disponible.</div>')+'</section>'+
+    '<section class="panel"><header><div><h2>Ventes du shop</h2><p>Éclats dépensés par jour</p></div></header>'+(s.sales7.length?barChart(s.sales7,['sam.','dim.','lun.','mar.','mer.','jeu.','ven.'],'éclats'):'<div class="empty">Aucune donnée de vente disponible.</div>')+'</section>'+
     '<section class="panel"><header><h2>À traiter</h2></header><div class="list">'+todo.map(function(t){return '<div class="li"><span class="dot '+(t[2]==='acc'?'':t[2])+'"></span><span>'+esc(t[0])+'</span><button class="btn sm ghost" style="margin-left:auto" data-go="'+t[1]+'">Ouvrir</button></div>'}).join('')+'</div></section>'+
   '</div>';
 };
@@ -5644,7 +5648,7 @@ var LSST={published:['ok','Publié'],soon:['info','À venir'],off:['off','Désac
 SEC.lskins=function(){
   return '<div class="spread"><p class="sub">Les skins changent tout le launcher. Ceux marqués « À venir » apparaissent verrouillés dans le catalogue des joueurs.</p><div class="row"><button class="btn pri" data-act="openNewLskin">'+IC.plus+'Nouveau skin</button><button class="btn" data-act="openGrant">'+IC.gift+'Offrir un skin</button></div></div>'+
   '<div class="tw"><table><thead><tr><th>Skin</th><th>État</th><th>Déblocage</th><th>Prix</th><th>Versions</th><th>Thème du joueur</th><th>Fichier</th><th>Détenteurs</th><th></th></tr></thead><tbody>'+DB.lskins.map(function(k){var s=LSST[k.status];
-    return '<tr><td><b>'+esc(k.n)+'</b></td><td>'+st(s[0],s[1])+'</td><td>'+esc(HOW[k.how]||k.how)+'</td><td class="num">'+(k.price?fmt(k.price)+' cr.':'—')+'</td><td><div class="chips"><span class="tag">Standard</span>'+(k.lg?'<span class="tag">Liquid Glass</span>':'')+(k.mat?'<span class="tag">Mat</span>':'')+'</div></td><td>'+(k.themed?'Suit le thème':'Couleurs imposées')+'</td><td>'+(k.file&&k.file.id?st('ok','v'+esc(k.file.version)):st('off','Aucun'))+'</td><td class="num">'+fmt(k.owners)+'</td><td><div class="acts">'+(k.id!=='none'?'<button class="btn sm ghost" data-act="openLskin" data-id="'+k.id+'">Modifier</button>':'')+'</div></td></tr>'}).join('')+'</tbody></table></div>';
+    return '<tr><td><b>'+esc(k.n)+'</b></td><td>'+st(s[0],s[1])+'</td><td>'+esc(HOW[k.how]||k.how)+'</td><td class="num">'+(k.price?fmt(k.price)+' éclats':'—')+'</td><td><div class="chips"><span class="tag">Standard</span>'+(k.lg?'<span class="tag">Liquid Glass</span>':'')+(k.mat?'<span class="tag">Mat</span>':'')+'</div></td><td>'+(k.themed?'Suit le thème':'Couleurs imposées')+'</td><td>'+(k.file&&k.file.id?st('ok','v'+esc(k.file.version)):st('off','Aucun'))+'</td><td class="num">'+fmt(k.owners)+'</td><td><div class="acts">'+(k.id!=='none'?'<button class="btn sm ghost" data-act="openLskin" data-id="'+k.id+'">Modifier</button>':'')+'</div></td></tr>'}).join('')+'</tbody></table></div>';
 };
 
 /* ---------- Modpacks ---------- */
@@ -5802,7 +5806,7 @@ DR.lskin=function(d){var x=d.draft;
   return {title:d.id?'Skin · '+x.n:'Nouveau skin launcher',
     body:'<div class="form">'+(d.id?'':F('Nom',I('n',x.n,'maxlength="60"')))+'<div class="field"><span>État dans le catalogue</span>'+SEG('status',x.status,[['published','Publié'],['soon','À venir'],['off','Désactivé']])+'</div>'+
       '<div class="field"><span>Façons de le débloquer</span><div class="row">'+CHK('uEvent',x.uEvent,'Event')+CHK('uShop',x.uShop,'Shop')+CHK('uAch',x.uAch,'Succès')+CHK('uPrem',x.uPrem,'Premium')+'</div></div>'+
-      (x.uShop?F('Prix (crédits)',N('price',x.price,'min="0" step="50"')):'')+(x.uEvent?F('Event qui le débloque',I('evName',x.evName||'','placeholder="Raz-de-marée"')):'')+(x.uAch?F('Succès à obtenir',I('achText',x.achText||'','placeholder="50 lancements"')):'')+
+      (x.uShop?F('Prix (éclats)',N('price',x.price,'min="0" step="50"'),'Le joueur l’achète dans le launcher avec ses éclats.'):'')+(x.uEvent?F('Event qui le débloque',I('evName',x.evName||'','placeholder="Raz-de-marée"')):'')+(x.uAch?F('Succès à obtenir',I('achText',x.achText||'','placeholder="50 lancements"')):'')+
       '<div class="field"><span>Versions proposées</span><div class="row"><label class="check"><input type="checkbox" checked disabled> Standard</label>'+CHK('lg',x.lg,'Liquid Glass')+CHK('mat',x.mat,'Mat')+'</div></div>'+
       '<div class="field"><span>Couleurs</span>'+SEG('themed',x.themed?'1':'0',[['1','Suit le thème du joueur'],['0','Couleurs imposées']])+'</div></div>'+
       (d.id?'<section class="panel" style="background:var(--panel-2)"><header><div><h2>Fichier du skin</h2><p>Archive .rlskin (40 Mo max) et sa signature Ed25519. Le launcher la télécharge sans mise à jour.</p></div></header>'+errBox({err:x.fileErr})+
@@ -5810,12 +5814,24 @@ DR.lskin=function(d){var x=d.draft;
         '<div class="form"><div class="two">'+F('Version du fichier',I('fver',x.fver||'','class="mono" placeholder="1.0.0"'))+'<div></div></div>'+
         F('Archive',fileBox('lskinFile','Fichier .rlskin','.rlskin,.zip',x.upName?x.upName+' · '+x.upSize:''),x.upSha?'SHA-256 : <span class="hash">'+x.upSha+'</span>':'Fabriquée et signée avec tools/relaunch-skin.mjs.')+
         F('Signature',fileBox('lskinSig','Fichier .sig','.sig,.txt',x.upSig||''))+
-        '<div class="row"><button class="btn sm pri" data-act="lskinUpload">'+IC.upload+'Publier ce fichier</button>'+(x.file&&x.file.id?'<button class="btn sm danger" data-act="lskinFileRemove">Retirer le fichier publié</button>':'')+'</div></div></section>':'<p class="sub">Enregistre d’abord la fiche : l’envoi du fichier .rlskin se fait ensuite depuis « Modifier ».</p>'),
+        '<div class="row"><button class="btn sm pri" data-act="lskinUpload">'+IC.upload+'Publier ce fichier</button>'+(x.file&&x.file.id?'<button class="btn sm danger" data-act="lskinFileRemove">Retirer le fichier publié</button>':'')+'</div></div></section>'+lskinCodesBox(d):'<p class="sub">Enregistre d’abord la fiche : l’envoi du fichier .rlskin se fait ensuite depuis « Modifier ».</p>'),
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="lskinSave">Enregistrer</button>'};
 };
+/* Codes de déblocage : un code = un skin, N utilisations ; montré une seule fois (le Worker ne garde qu’une empreinte). */
+function lskinCodesBox(d){var x=d.draft,batches={};
+  DB.skinCodes.filter(function(c){return c.skinId===d.id}).forEach(function(c){var b=batches[c.batchId]||(batches[c.batchId]={id:c.batchId,label:c.label,n:0,left:0,uses:0,exp:c.expiresAt,revoked:!!c.revoked,at:c.createdAt});b.n++;b.left+=c.revoked?0:(c.usesLeft||0);b.uses+=c.uses||0});
+  var rows=Object.keys(batches).map(function(k){return batches[k]}).sort(function(a,b){return String(b.at).localeCompare(String(a.at))}).map(function(b){
+    return '<tr><td>'+esc(b.label||'—')+'</td><td class="num">'+b.n+'</td><td class="num">'+fmt(b.left)+' / '+fmt(b.uses)+'</td><td>'+(b.revoked?st('off','Désactivé'):b.exp&&Date.parse(b.exp)<Date.now()?st('off','Expiré'):st('ok',b.exp?'Jusqu’au '+new Date(b.exp).toLocaleDateString('fr-FR'):'Sans fin'))+'</td><td class="num">'+(b.revoked?'':'<button class="btn sm danger" data-act="lskinCodesRevoke" data-id="'+esc(b.id)+'">Désactiver</button>')+'</td></tr>'}).join('');
+  return '<section class="panel" style="background:var(--panel-2)"><header><div><h2>Codes de déblocage</h2><p>Pour un event, un succès, un partenaire… Le joueur entre le code dans le launcher et obtient le skin. Les codes ne s’affichent qu’une fois : copie-les tout de suite.</p></div></header>'+errBox({err:x.codeErr})+
+    '<div class="form"><div class="two">'+F('Nombre de codes',N('ccount',x.ccount||1,'min="1" max="500"'))+F('Utilisations par code',N('cuses',x.cuses||1,'min="1" max="10000"'),'1 = un seul joueur par code ; 100 = un code partagé à 100 joueurs')+'</div>'+
+    '<div class="two">'+F('Nom du lot',I('clabel',x.clabel||'','maxlength="80" placeholder="Event Raz-de-marée"'))+F('Expire le (facultatif)',I('cexp',x.cexp||'','type="date"'))+'</div>'+
+    '<div class="row"><button class="btn sm pri" data-act="lskinCodesMake">Générer</button></div>'+
+    (x.newCodes&&x.newCodes.length?F('Codes générés',TA('newCodesTxt',x.newCodes.join('\n'),'rows="'+Math.min(10,x.newCodes.length+1)+'" readonly class="mono"'))+'<div class="row"><button class="btn sm" data-act="lskinCodesCopy">Copier les codes</button></div>':'')+'</div>'+
+    (rows?'<div class="tw"><table><thead><tr><th>Lot</th><th>Codes</th><th>Utilisations restantes</th><th>État</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'')+'</section>';
+}
 DR.grant=function(d){var x=d.draft;
   return {title:'Offrir un skin du launcher',
-    body:errBox(x)+'<div class="form">'+F('Joueur','<input type="text" data-k="player" value="'+esc(x.player)+'" placeholder="Pseudo ou identifiant ReLink">')+
+    body:errBox(x)+'<div class="form">'+F('Joueur','<input type="text" data-k="player" value="'+esc(x.player)+'" placeholder="Identifiant Discord, pseudo ReLink ou pseudo Minecraft">')+
       F('Skin',SEL('skin',x.skin,DB.lskins.filter(function(k){return k.id!=='none'}).map(function(k){return [k.id,k.n]})))+F('Motif',I('reason',x.reason,'placeholder="Gagnant de l\'event Terres Brûlées"'),'Visible dans le journal d\'audit')+'</div>',
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="grantSave">'+IC.gift+'Offrir</button>'};
 };
@@ -6068,6 +6084,17 @@ ACT.lskinSave=function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);
   run(b,nw?'lskinCreate':'lskinSave',{id:d.id},payload,{ok:'Skin « '+(x.n||k.n)+' » enregistré',target:x.n||k.n,close:true,after:function(res){
     if(nw){var record=res.record||{};DB.lskins.push(Object.assign({id:res.id,n:x.n,owners:0},record,{id:res.id,how:how,price:x.uShop?+x.price:0,lg:x.lg,mat:x.mat,themed:x.themed==='1'||x.themed===true}))}
     else{k.status=x.status;k.how=how;k.price=x.uShop?+x.price:0;k.lg=x.lg;k.mat=x.mat;k.themed=x.themed==='1'||x.themed===true}}})};
+ACT.lskinCodesMake=function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);x.codeErr='';
+  var count=+x.ccount||1,uses=+x.cuses||1;
+  if(count<1||count>500)x.codeErr='entre 1 et 500 codes.';else if(uses<1||uses>10000)x.codeErr='entre 1 et 10 000 utilisations par code.';
+  if(x.codeErr){renderDrawer();return}
+  run(b,'lskinCodes',{id:k.id},{count:count,uses:uses,label:x.clabel||'',expiresAt:x.cexp?new Date(x.cexp+'T23:59:59').toISOString():null},{ok:count+' code'+(count>1?'s':'')+' généré'+(count>1?'s':''),target:k.n,after:function(res){
+    var codes=res.codes||(CFG.simulate?Array.from({length:count},function(){return 'XXXX-XXXX-'+Math.random().toString(36).slice(2,6).toUpperCase()}):[]);
+    x.newCodes=codes;var bid=res.batchId||uid('b');codes.forEach(function(c){DB.skinCodes.push({skinId:k.id,batchId:bid,label:x.clabel||'',uses:uses,usesLeft:uses,expiresAt:x.cexp||null,createdAt:new Date().toISOString()})})}})};
+ACT.lskinCodesCopy=function(){var x=S.drawer.draft;copyText((x.newCodes||[]).join('\n'),'Les codes')};
+ACT.lskinCodesRevoke=async function(b){var id=b.dataset.id;
+  if(!(await confirmBox({title:'Désactiver ce lot de codes ?',text:'Les codes non utilisés ne marcheront plus. Les joueurs qui ont déjà débloqué le skin le gardent.',ok:'Désactiver',danger:true})))return;
+  run(b,'lskinCodesRevoke',{id:id},{},{ok:'Lot de codes désactivé',target:id,after:function(){DB.skinCodes.forEach(function(c){if(c.batchId===id)c.revoked=true})}})};
 ACT.lskinUpload=async function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);x.fileErr='';
   if(!VER_RE.test(x.fver||''))x.fileErr='la version du fichier doit suivre le format 1.0.0.';
   else if(x.file&&x.file.version&&cmpVer(x.fver,x.file.version)<=0)x.fileErr='la version doit être plus récente que '+x.file.version+'.';
@@ -6229,6 +6256,9 @@ function applyLauncherState(state){
   DB.events=list('events').map(function(item){return Object.assign({n:item.n||item.name||item.id,date:'',server:'',pack:'',slots:0,state:'draft',desc:'',apps:[]},item)});
   DB.partners=list('partners').map(function(item){return Object.assign({n:item.n||item.name||item.id,ch:'',cat:'',featured:false,live:false,viewers:0},item)});
   DB.packFiles=list('pack_files');
+  DB.skinCodes=list('skin_codes');
+  var grants=list('skin_grants');
+  DB.lskins.forEach(function(k){k.owners=grants.filter(function(g){return g.skinId===k.id}).length});
   DB.mcSkins=list('mc_skins');
   DB.reports=list('reports').map(function(item){return Object.assign({who:'',reason:'',where:'',by:'',when:'',state:'open',apps:[]},item)});
   var revisions=Array.isArray(state.revisions)?state.revisions:[];
