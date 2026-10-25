@@ -5153,7 +5153,9 @@ var ROUTES={
   stats:['GET','/admin/stats','Chiffres de la vue d\'ensemble'],
   health:['GET','/admin/health','État des services'],
   releases:['GET','/admin/releases','Liste des versions du launcher'],
-  releaseCreate:['POST','/admin/releases','Publier une nouvelle version (installeur + signature + notes)'],
+  releaseCreate:['POST','/admin/releases','Publier une version en envoyant l’installeur (stockage R2, 94 Mio maximum)'],
+  releasesGithub:['GET','/admin/releases/github','Lister les brouillons de release compilés par GitHub'],
+  releaseFromGithub:['POST','/admin/releases/github','Publier aux joueurs une release compilée et signée par GitHub'],
   rollout:['PATCH','/admin/channels/:channel/rollout','Changer le pourcentage de déploiement d\'un canal'],
   pause:['POST','/admin/channels/:channel/pause','Mettre en pause le déploiement d\'un canal'],
   resume:['POST','/admin/channels/:channel/resume','Reprendre le déploiement d\'un canal'],
@@ -5180,7 +5182,9 @@ var ROUTES={
   lskinSave:['PUT','/admin/launcher-skins/:id','Modifier un skin du launcher'],
   lskinCreate:['POST','/admin/launcher-skins','Créer un skin du launcher'],
   lskinGrant:['POST','/admin/launcher-skins/:id/grant','Offrir un skin du launcher à un joueur'],
-  modpackVersion:['POST','/admin/modpacks/:id/versions','Publier une version de modpack (manifest signé)'],
+  lskinFile:['POST','/admin/launcher-skins/:id/file','Publier le fichier .rlskin signé d’un skin'],
+  lskinFileRemove:['DELETE','/admin/launcher-skins/:id/file','Retirer le fichier publié d’un skin'],
+  modpackVersion:['POST','/admin/modpacks/:id/versions','Publier une version de modpack (manifeste relaunch-pack signé + overrides)'],
   modpackSave:['PATCH','/admin/modpacks/:id','Modifier ou masquer un modpack'],
   modpackCreate:['POST','/admin/modpacks','Créer une fiche de modpack'],
   modpackVerify:['POST','/admin/modpacks/:id/verify','Vérifier la signature du manifest'],
@@ -5194,15 +5198,15 @@ var ROUTES={
   partnerSave:['PATCH','/admin/partners/:id','Modifier un partenaire'],
   report:['POST','/admin/reports/:id','Traiter un signalement'],
   state:['GET','/admin/launcher/state','Recharger les données persistées du launcher'],
-  storage:['GET','/admin/launcher/storage','Consulter le stockage R2 des artefacts ReLaunch'],
-  storageDelete:['DELETE','/admin/launcher/storage/:type/:id','Supprimer un artefact ReLaunch ou un objet orphelin du R2'],
+  storage:['GET','/admin/launcher/storage','Consulter le stockage des fichiers ReLaunch (GitHub et R2)'],
+  storageDelete:['DELETE','/admin/launcher/storage/:type/:id','Supprimer un fichier ReLaunch (skin, modpack, bannière, release ou objet orphelin)'],
   launcherBootstrap:['GET','/launcher/bootstrap?channel=stable&installId=<uuid>','API publique : configuration, maintenance, catalogue et mise à jour'],
   launcherCatalog:['GET','/launcher/catalog','API publique : modpacks, serveurs, événements et partenaires'],
   launcherNews:['GET','/launcher/news','API publique : actualités publiées'],
   launcherUpdates:['GET','/launcher/updates?channel=stable&installId=<uuid>','API publique : mise à jour compatible avec le déploiement progressif'],
   launcherNotifications:['GET','/launcher/notifications?deviceId=<uuid>&channel=stable','API publique : notifications destinées à cette installation'],
-  launcherAsset:['GET','/launcher/assets/:version','Téléchargement public avec prise en charge des requêtes Range'],
-  launcherAssetSignature:['GET','/launcher/assets/:version?signature=1','Signature Ed25519 détachée pour vérifier le téléchargement'],
+  launcherAsset:['GET','/launcher/assets/:id','Téléchargement public (release, manifeste, overrides, skin) avec Range'],
+  launcherAssetSignature:['GET','/launcher/assets/:id?signature=1','Signature Ed25519 détachée pour vérifier le téléchargement'],
 };
 
 /* ---------- Réglages de connexion (le jeton n'est jamais enregistré) ---------- */
@@ -5249,7 +5253,7 @@ function $(id){return document.getElementById(id)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function fmt(n){return Number(n).toLocaleString('fr-FR')}
 function formatStorageBytes(bytes){var n=Number(bytes)||0;return n>=1073741824?(n/1073741824).toFixed(2).replace('.',',')+' Go':n>=1048576?(n/1048576).toFixed(1).replace('.',',')+' Mo':n>=1024?(n/1024).toFixed(0)+' Ko':n+' o'}
-function exceedsStorageQuota(file,signature){return !!(!CFG.simulate&&DB.storage&&DB.storage.usedBytes+file.size+signature.size>DB.storage.quotaBytes)}
+function exceedsStorageQuota(file,signature){return !!(!CFG.simulate&&DB.storage&&DB.storage.mode==='r2'&&DB.storage.usedBytes+file.size+signature.size>DB.storage.quotaBytes)}
 function rnd(seed){var x=seed||1;return function(){x=(x*16807)%2147483647;return (x-1)/2147483646}}
 function hex(seed,len){var r=rnd(seed),s='';for(var i=0;i<len;i++)s+='0123456789abcdef'[Math.floor(r()*16)];return s}
 function nowStr(){var d=new Date();return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
@@ -5542,13 +5546,13 @@ SEC.updates=function(){
     return '<tr><td><b class="mono" style="font-size:13px">'+esc(r.v)+'</b></td><td>'+CH_LABEL[r.ch]+'</td><td class="num">'+esc(r.date)+'</td><td>'+(r.sig?st('ok','Ed25519'):st('bad','Absente'))+'</td><td class="num">'+esc(r.size)+'</td><td><span class="hash" title="'+r.sha+'">'+r.sha.slice(0,12)+'…</span></td><td class="num">'+String(r.crash).replace('.',',')+' %</td><td>'+st(s[0],s[1])+'</td>'+
       '<td><div class="acts"><button class="btn sm ghost" data-act="openNotes" data-v="'+esc(r.v)+'">Notes</button>'+(r.status!=='retired'?'<button class="btn sm ghost" data-act="retire" data-v="'+esc(r.v)+'">Retirer</button>':'')+'</div></td></tr>'}).join('');
   var storage=DB.storage,storageRows=storage&&storage.artifacts?storage.artifacts.map(function(a){
-    return '<tr><td>'+esc(a.title)+'</td><td>'+(a.type==='release'?'Release':a.type==='modpack'?'Manifest de modpack':a.type==='banner'?'Image de bannière':'Fichier orphelin')+'</td><td class="num">'+formatStorageBytes(a.bytes)+'</td><td>'+(a.active?st('warn','Utilisé'):st('off','Inactif'))+'</td><td class="num">'+(a.active?'<span class="faint">Actif</span>':'<button class="btn sm danger" data-act="storageDelete" data-type="'+esc(a.type)+'" data-id="'+esc(a.id)+'" data-title="'+esc(a.title)+'">Supprimer</button>')+'</td></tr>';
+    return '<tr><td>'+esc(a.title)+'</td><td>'+(STORE_TYPE[a.type]||a.type)+'</td><td>'+(STORE_WHERE[a.storage]||'R2')+'</td><td class="num">'+formatStorageBytes(a.bytes)+'</td><td>'+(a.active?st('warn','Utilisé'):st('off','Inactif'))+'</td><td class="num">'+(a.active?'<span class="faint">Actif</span>':'<button class="btn sm danger" data-act="storageDelete" data-type="'+esc(a.type)+'" data-id="'+esc(a.id)+'" data-title="'+esc(a.title)+'">Supprimer</button>')+'</td></tr>';
   }).join(''):'';
-  var storagePanel='<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Stockage R2 ReLaunch</h2><p>Quota strict de 10 Go sur tout le bucket dédié relaunchr2.</p></div><button class="btn sm" data-act="storageRefresh"'+(CFG.simulate?' disabled':'')+'>Actualiser</button></header>'+
+  var storagePanel='<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Stockage des fichiers ReLaunch</h2><p>'+(storage&&storage.mode==='github'?'Skins et modpacks dans GitHub (<span class="mono">'+esc(storage.githubRepo)+'</span>, gratuit). R2 ne garde que les bannières (10 Go).':storage&&storage.mode==='unconfigured'?'Stockage GitHub demandé mais RELAUNCH_GITHUB_TOKEN ou RELAUNCH_GITHUB_REPO manque.':'Bucket R2 relaunchr2, quota strict de 10 Go. Configure RELAUNCH_GITHUB_TOKEN et RELAUNCH_GITHUB_REPO pour stocker les fichiers dans GitHub.')+'</p></div><button class="btn sm" data-act="storageRefresh"'+(CFG.simulate?' disabled':'')+'>Actualiser</button></header>'+
     (CFG.simulate?'<div class="simnote">Désactive le mode simulation pour consulter le stockage réel et supprimer des fichiers.</div>':storage?
-      '<div style="padding:0 16px 14px"><div class="spread"><b>'+formatStorageBytes(storage.usedBytes)+' utilisés</b><span class="faint">sur '+formatStorageBytes(storage.quotaBytes)+'</span></div><div class="bar"><i style="width:'+Math.min(100,storage.quotaBytes?storage.usedBytes/storage.quotaBytes*100:0)+'%"></i></div><small class="faint">'+fmt(storage.objectCount)+' objet(s) dans le bucket relaunchr2</small></div>'+
-      '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Contenu</th><th>Type</th><th>Taille</th><th>État</th><th></th></tr></thead><tbody>'+(storageRows||'<tr><td colspan="5" class="faint">Aucun artefact à afficher.</td></tr>')+'</tbody></table></div>':
-      '<div class="simnote">Clique sur « Actualiser » pour calculer l’espace actuellement utilisé dans R2.</div>')+'</section>';
+      '<div style="padding:0 16px 14px"><div class="spread"><b>'+formatStorageBytes(storage.usedBytes)+' utilisés</b><span class="faint">sur '+formatStorageBytes(storage.quotaBytes)+'</span></div><div class="bar"><i style="width:'+Math.min(100,storage.quotaBytes?storage.usedBytes/storage.quotaBytes*100:0)+'%"></i></div><small class="faint">R2 : '+fmt(storage.objectCount)+' objet(s)'+(storage.githubBytes?' · GitHub : '+formatStorageBytes(storage.githubBytes):'')+'</small></div>'+
+      '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Contenu</th><th>Type</th><th>Stockage</th><th>Taille</th><th>État</th><th></th></tr></thead><tbody>'+(storageRows||'<tr><td colspan="6" class="faint">Aucun fichier à afficher.</td></tr>')+'</tbody></table></div>':
+      '<div class="simnote">Clique sur « Actualiser » pour lister les fichiers et l’espace utilisé.</div>')+'</section>';
   return (u.kill?'<div class="simnote" style="border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.08);color:#fecdd3"><b style="color:#fda4af">Arrêt d\'urgence actif.</b> Aucun launcher ne reçoit de mise à jour tant qu\'il reste activé.</div>':'')+
   '<div class="grid g3">'+chans+'</div>'+
   '<div class="grid g2">'+
@@ -5556,7 +5560,7 @@ SEC.updates=function(){
     '<section class="panel"><header><div><h2>Version minimale</h2><p>Les launchers plus anciens doivent se mettre à jour avant de lancer une instance.</p></div></header>'+
       '<div class="row"><input type="text" id="minVer" class="mono" value="'+esc(u.minVersion)+'" style="max-width:140px" aria-label="Version minimale"><label class="check"><input type="checkbox" id="minBlock"'+(u.blockOld?' checked':'')+'> Bloquer le lancement en dessous</label><button class="btn sm pri" data-act="saveMin" style="margin-left:auto">Enregistrer</button></div></section>'+
   '</div>'+
-  '<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Versions publiées</h2><p>Installeur NSIS par utilisateur, signé en Ed25519</p></div><button class="btn pri" data-act="openRelease">'+IC.plus+'Nouvelle version</button></header>'+
+  '<section class="panel" style="padding:0;gap:0"><header style="padding:14px 16px"><div><h2>Versions publiées</h2><p>Compilées et signées par GitHub, publiées aux joueurs depuis ce panel</p></div><button class="btn pri" data-act="openRelease">'+IC.plus+'Nouvelle version</button></header>'+
     '<div class="tw" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Version</th><th>Canal</th><th>Date</th><th>Signature</th><th>Taille</th><th>SHA-256</th><th>Plantages</th><th>État</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></section>'+storagePanel;
 };
 
@@ -5630,8 +5634,8 @@ var HOW={free:'Inclus','event+shop':'Event ou shop','ach+shop':'Succès ou shop'
 var LSST={published:['ok','Publié'],soon:['info','À venir'],off:['off','Désactivé']};
 SEC.lskins=function(){
   return '<div class="spread"><p class="sub">Les skins changent tout le launcher. Ceux marqués « À venir » apparaissent verrouillés dans le catalogue des joueurs.</p><div class="row"><button class="btn pri" data-act="openNewLskin">'+IC.plus+'Nouveau skin</button><button class="btn" data-act="openGrant">'+IC.gift+'Offrir un skin</button></div></div>'+
-  '<div class="tw"><table><thead><tr><th>Skin</th><th>État</th><th>Déblocage</th><th>Prix</th><th>Versions</th><th>Thème du joueur</th><th>Détenteurs</th><th></th></tr></thead><tbody>'+DB.lskins.map(function(k){var s=LSST[k.status];
-    return '<tr><td><b>'+esc(k.n)+'</b></td><td>'+st(s[0],s[1])+'</td><td>'+esc(HOW[k.how]||k.how)+'</td><td class="num">'+(k.price?fmt(k.price)+' cr.':'—')+'</td><td><div class="chips"><span class="tag">Standard</span>'+(k.lg?'<span class="tag">Liquid Glass</span>':'')+(k.mat?'<span class="tag">Mat</span>':'')+'</div></td><td>'+(k.themed?'Suit le thème':'Couleurs imposées')+'</td><td class="num">'+fmt(k.owners)+'</td><td><div class="acts">'+(k.id!=='none'?'<button class="btn sm ghost" data-act="openLskin" data-id="'+k.id+'">Modifier</button>':'')+'</div></td></tr>'}).join('')+'</tbody></table></div>';
+  '<div class="tw"><table><thead><tr><th>Skin</th><th>État</th><th>Déblocage</th><th>Prix</th><th>Versions</th><th>Thème du joueur</th><th>Fichier</th><th>Détenteurs</th><th></th></tr></thead><tbody>'+DB.lskins.map(function(k){var s=LSST[k.status];
+    return '<tr><td><b>'+esc(k.n)+'</b></td><td>'+st(s[0],s[1])+'</td><td>'+esc(HOW[k.how]||k.how)+'</td><td class="num">'+(k.price?fmt(k.price)+' cr.':'—')+'</td><td><div class="chips"><span class="tag">Standard</span>'+(k.lg?'<span class="tag">Liquid Glass</span>':'')+(k.mat?'<span class="tag">Mat</span>':'')+'</div></td><td>'+(k.themed?'Suit le thème':'Couleurs imposées')+'</td><td>'+(k.file&&k.file.id?st('ok','v'+esc(k.file.version)):st('off','Aucun'))+'</td><td class="num">'+fmt(k.owners)+'</td><td><div class="acts">'+(k.id!=='none'?'<button class="btn sm ghost" data-act="openLskin" data-id="'+k.id+'">Modifier</button>':'')+'</div></td></tr>'}).join('')+'</tbody></table></div>';
 };
 
 /* ---------- Modpacks ---------- */
@@ -5719,6 +5723,8 @@ function clone(o){return JSON.parse(JSON.stringify(o))}
 var VER_RE=/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
 
 var DR={};
+var STORE_TYPE={release:'Release du launcher',modpack:'Modpack (manifeste)',skin:'Fichier de skin',banner:'Image de bannière',orphan:'Fichier orphelin'};
+var STORE_WHERE={github:'GitHub','github-release':'GitHub (release)',r2:'R2'};
 DR.rollout=function(d){var c=DB.channels[d.ch];
   return {title:'Déploiement · canal '+CH_LABEL[d.ch],
     body:'<p class="soft">Version <b class="mono">'+esc(c.cur)+'</b>. Le pourcentage décide quelle part des launchers du canal reçoit la mise à jour au prochain démarrage.</p>'+
@@ -5727,14 +5733,23 @@ DR.rollout=function(d){var c=DB.channels[d.ch];
       '<div class="panel" style="background:var(--panel-2)"><span class="lbl">Garde-fou</span><p class="sub">Si le taux de plantage dépasse 2 % des sessions, le Worker met le déploiement en pause tout seul.</p></div>',
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="rolloutSave">Appliquer '+d.draft.pct+' %</button>'};
 };
-DR.release=function(d){var x=d.draft;
-  return {title:'Nouvelle version du launcher',
-    body:errBox(x)+'<div class="form"><div class="two">'+F('Version',I('v',x.v,'class="mono" placeholder="2.1.1"'),'Format 2.1.1 ou 2.1.1-beta.1')+F('Canal',SEL('ch',x.ch,[['interne','Interne'],['beta','Bêta'],['stable','Stable']]),'Actuelle : '+esc(DB.channels[x.ch].cur))+'</div>'+
+DR.release=function(d){var x=d.draft,gh=x.gh||[],sel=gh.filter(function(r){return r.tag===x.tag})[0];
+  var common=F('Notes de version',TA('notes',x.notes,'rows="7" placeholder="## Nouveautés&#10;- …"'))+'<div class="preview-box md" id="relPrev">'+md(x.notes||'*Aperçu des notes*')+'</div>'+
+      '<div class="two">'+F('Déploiement de départ',SEL('pct',x.pct,[[1,'1 %'],[5,'5 %'],[10,'10 %'],[25,'25 %'],[50,'50 %'],[100,'100 %']]))+'<div class="field"><span>Obligatoire</span>'+CHK('mandatory',x.mandatory,'Les joueurs ne peuvent pas la reporter')+'</div></div>';
+  var head=GH_READY?'<div class="field"><span>Origine</span>'+SEG('src',x.src,[['github','Compilée par GitHub'],['upload','Envoyer un installeur (R2)']])+'</div>':'<p class="soft">Récupère <span class="mono">ReLaunch.exe</span> et <span class="mono">ReLaunch.exe.sig</span> dans le brouillon créé par la CI GitHub, puis envoie-les ici. Saisis exactement la version du tag (sans « relaunch-v »).</p>';
+  var body=x.src==='github'?
+    '<p class="soft">La CI GitHub compile et signe l’installeur (tag <span class="mono">relaunch-vX.Y.Z</span>), puis dépose un brouillon dans <span class="mono">'+esc(x.repo||'WeCraft-Releases')+'</span>. Ici, tu le publies aux joueurs : le Worker revérifie la signature Ed25519 avant tout.</p>'+
+    '<div class="row"><button class="btn sm" data-act="ghLoad">'+(gh.length?'Actualiser la liste':'Charger les releases GitHub')+'</button>'+(x.ghErr?'<span class="faint">'+esc(x.ghErr)+'</span>':'')+'</div>'+
+    (gh.length?'<div class="two">'+F('Release',SEL('tag',x.tag,gh.map(function(r){return [r.tag,r.tag+(r.draft?' · brouillon':r.prerelease?' · préversion':'')+(r.imported?' · déjà publiée':'')]}),true))+F('Canal',SEL('ch',x.ch,[['interne','Interne'],['beta','Bêta'],['stable','Stable']]),'Actuelle : '+esc(DB.channels[x.ch].cur))+'</div>'+
+      (sel?'<div class="panel" style="background:var(--panel-2)"><dl><dt>Installeur</dt><dd>ReLaunch.exe · '+sizeOf(sel.size)+'</dd><dt>Signature</dt><dd>'+(sel.hasSignature&&sel.hasSha256?st('ok','.sig et .sha256 présents'):st('bad','Fichiers de signature absents'))+'</dd><dt>Créée</dt><dd>'+esc(sel.createdAt||'')+'</dd></dl></div>':'')+
+      CHK('githubLatest',x.githubLatest,'Marquer aussi « Latest » sur GitHub (sinon : préversion, invisible des anciens launchers Python)'):'')
+    :'<div class="form"><div class="two">'+F('Version',I('v',x.v,'class="mono" placeholder="2.1.1"'),'Format 2.1.1 ou 2.1.1-beta.1')+F('Canal',SEL('ch',x.ch,[['interne','Interne'],['beta','Bêta'],['stable','Stable']]),'Actuelle : '+esc(DB.channels[x.ch].cur))+'</div>'+
       F('Installeur',fileBox('relFile','Installeur .exe (NSIS)','.exe,.msi,.zip',x.file?x.file+' · '+x.size:''),x.sha?'SHA-256 calculé dans ton navigateur : <span class="hash">'+x.sha+'</span>':'Le SHA-256 est calculé localement; le Worker le vérifie avant le stockage R2.')+
-      F('Signature Ed25519',fileBox('relSig','Fichier .sig','.sig,.txt',x.sig||''),'Obligatoire pour tous les canaux; le Worker la vérifie avec la clé publique configurée.')+
-      F('Notes de version',TA('notes',x.notes,'rows="7" placeholder="## Nouveautés&#10;- …"'))+'<div class="preview-box md" id="relPrev">'+md(x.notes||'*Aperçu des notes*')+'</div>'+
-      '<div class="two">'+F('Déploiement de départ',SEL('pct',x.pct,[[1,'1 %'],[5,'5 %'],[10,'10 %'],[25,'25 %'],[50,'50 %'],[100,'100 %']]))+'<div class="field"><span>Obligatoire</span>'+CHK('mandatory',x.mandatory,'Les joueurs ne peuvent pas la reporter')+'</div></div></div>',
-    foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="releasePublish">'+IC.upload+'Publier '+(x.v?esc(x.v):'')+'</button>'};
+      F('Signature Ed25519',fileBox('relSig','Fichier .sig','.sig,.txt',x.sig||''),'Le .sig produit par la CI (version + SHA-256), vérifié avec RELAUNCH_UPDATE_PUBLIC_KEY.')+'</div>';
+  var label=x.src==='github'?(x.tag||''):(x.v||'');
+  return {title:'Nouvelle version du launcher',
+    body:errBox(x)+'<div class="form">'+head+body+((x.src!=='github'||gh.length)?common:'')+'</div>',
+    foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="releasePublish">'+IC.upload+'Publier '+esc(label)+'</button>'};
 };
 DR.notes=function(d){return {title:'Notes de '+d.v,body:F('Notes (Markdown simple)',TA('notes',d.draft.notes,'rows="10"'))+'<div class="preview-box md" id="notesPrev">'+md(d.draft.notes)+'</div>',foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="notesSave">Enregistrer</button>'}};
 DR.card=function(d){var x=d.draft;
@@ -5763,7 +5778,13 @@ DR.lskin=function(d){var x=d.draft;
       '<div class="field"><span>Façons de le débloquer</span><div class="row">'+CHK('uEvent',x.uEvent,'Event')+CHK('uShop',x.uShop,'Shop')+CHK('uAch',x.uAch,'Succès')+CHK('uPrem',x.uPrem,'Premium')+'</div></div>'+
       (x.uShop?F('Prix (crédits)',N('price',x.price,'min="0" step="50"')):'')+(x.uEvent?F('Event qui le débloque',I('evName',x.evName||'','placeholder="Raz-de-marée"')):'')+(x.uAch?F('Succès à obtenir',I('achText',x.achText||'','placeholder="50 lancements"')):'')+
       '<div class="field"><span>Versions proposées</span><div class="row"><label class="check"><input type="checkbox" checked disabled> Standard</label>'+CHK('lg',x.lg,'Liquid Glass')+CHK('mat',x.mat,'Mat')+'</div></div>'+
-      '<div class="field"><span>Couleurs</span>'+SEG('themed',x.themed?'1':'0',[['1','Suit le thème du joueur'],['0','Couleurs imposées']])+'</div></div>',
+      '<div class="field"><span>Couleurs</span>'+SEG('themed',x.themed?'1':'0',[['1','Suit le thème du joueur'],['0','Couleurs imposées']])+'</div></div>'+
+      (d.id?'<section class="panel" style="background:var(--panel-2)"><header><div><h2>Fichier du skin</h2><p>Archive .rlskin (40 Mo max) et sa signature Ed25519. Le launcher la télécharge sans mise à jour.</p></div></header>'+errBox({err:x.fileErr})+
+        (x.file&&x.file.id?'<dl><dt>Publié</dt><dd class="mono">v'+esc(x.file.version)+' · '+sizeOf(x.file.size)+'</dd><dt>SHA-256</dt><dd><span class="hash">'+esc(x.file.sha256)+'</span></dd></dl>':'<p class="soft">Aucun fichier publié : le skin n’est pas encore installable.</p>')+
+        '<div class="form"><div class="two">'+F('Version du fichier',I('fver',x.fver||'','class="mono" placeholder="1.0.0"'))+'<div></div></div>'+
+        F('Archive',fileBox('lskinFile','Fichier .rlskin','.rlskin,.zip',x.upName?x.upName+' · '+x.upSize:''),x.upSha?'SHA-256 : <span class="hash">'+x.upSha+'</span>':'Fabriquée et signée avec tools/relaunch-skin.mjs.')+
+        F('Signature',fileBox('lskinSig','Fichier .sig','.sig,.txt',x.upSig||''))+
+        '<div class="row"><button class="btn sm pri" data-act="lskinUpload">'+IC.upload+'Publier ce fichier</button>'+(x.file&&x.file.id?'<button class="btn sm danger" data-act="lskinFileRemove">Retirer le fichier publié</button>':'')+'</div></div></section>':'<p class="sub">Enregistre d’abord la fiche : l’envoi du fichier .rlskin se fait ensuite depuis « Modifier ».</p>'),
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="lskinSave">Enregistrer</button>'};
 };
 DR.grant=function(d){var x=d.draft;
@@ -5772,14 +5793,15 @@ DR.grant=function(d){var x=d.draft;
       F('Skin',SEL('skin',x.skin,DB.lskins.filter(function(k){return k.id!=='none'}).map(function(k){return [k.id,k.n]})))+F('Motif',I('reason',x.reason,'placeholder="Gagnant de l\'event Terres Brûlées"'),'Visible dans le journal d\'audit')+'</div>',
     foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="grantSave">'+IC.gift+'Offrir</button>'};
 };
-DR.pack=function(d){var m=byId(DB.modpacks,d.id),x=d.draft;
+DR.pack=function(d){var m=byId(DB.modpacks,d.id),x=d.draft,s=x.summary;
   return {title:'Nouvelle version · '+m.n,
-    body:errBox(x)+'<p class="soft">Version actuelle <b class="mono">'+esc(m.ver)+'</b> · Minecraft '+m.mc+' · '+esc(m.loader)+'</p><div class="form">'+
-      '<div class="two">'+F('Version du modpack',I('ver',x.ver,'class="mono" placeholder="3.2.1"'))+F('Loader',I('loader',x.loader))+'</div>'+
-      F('Manifest',fileBox('packFile','manifest.json','.json',x.file?x.file+' · '+x.size:''),x.sha?'SHA-256 : <span class="hash">'+x.sha+'</span>':'Liste des fichiers, tailles et empreintes du modpack.')+
-      F('Signature du manifest',fileBox('packSig','Fichier .sig','.sig,.txt',x.sig||''),'Signature Ed25519 brute (64 octets) ou encodée en base64.')+
+    body:errBox(x)+'<p class="soft">Version actuelle <b class="mono">'+esc(m.ver)+'</b> · Minecraft '+esc(m.mc)+' · '+esc(m.loader)+' · identifiant <span class="mono">'+esc(m.id)+'</span></p><div class="form">'+
+      F('Manifeste relaunch-pack',fileBox('packFile','pack.relaunch.json','.json',x.file?x.file+' · '+x.size:''),x.sha?'SHA-256 : <span class="hash">'+x.sha+'</span>':'Fabriqué avec tools/relaunch-pack.mjs à partir d’une instance (voir MANIFESTE-RELAUNCH-PACK.md).')+
+      (s?'<div class="panel" style="background:var(--panel-2)"><dl><dt>Version</dt><dd class="mono">'+esc(s.version)+'</dd><dt>Minecraft</dt><dd>'+esc(s.mc)+' · '+esc(s.loader)+'</dd><dt>Fichiers</dt><dd>'+fmt(s.files)+' dont '+fmt(s.mods)+' mods · '+formatStorageBytes(s.size)+'</dd><dt>Overrides</dt><dd>'+(s.overrides?'oui · '+formatStorageBytes(s.overrides.size):'non')+'</dd></dl></div>':'')+
+      F('Signature du manifeste',fileBox('packSig','Fichier .sig','.sig,.txt',x.sig||''),'Signature Ed25519 des octets du manifeste (64 octets bruts ou base64).')+
+      (s&&s.overrides?'<div class="two">'+F('Archive overrides',fileBox('packOv','overrides.zip','.zip',x.ovName?x.ovName+' · '+x.ovSize:''),x.ovSha?(x.ovSha===s.overrides.sha256?st('ok','Correspond au manifeste'):st('bad','Ne correspond pas au manifeste')):'Configs et fichiers non publiés sur Modrinth.')+F('Signature des overrides',fileBox('packOvSig','Fichier .sig','.sig,.txt',x.ovSig||''))+'</div>':'')+
       F('Changements',TA('changelog',x.changelog,'rows="5" placeholder="- Ajout de Create 0.5.1"'))+CHK('mandatory',x.mandatory,'Obligatoire pour rejoindre les serveurs ReLaunch')+'</div>',
-    foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="packPublish">'+IC.upload+'Publier</button>'};
+    foot:'<button class="btn ghost" data-act="closeDrawer">Annuler</button><button class="btn pri" data-act="packPublish">'+IC.upload+'Publier'+(s?' '+esc(s.version):'')+'</button>'};
 };
 DR.packCreate=function(d){var x=d.draft;
   return {title:'Nouveau modpack',body:errBox(x)+'<div class="form">'+
@@ -5853,16 +5875,16 @@ ACT.mYes=function(){closeModal(true)};
 ACT.dset=function(el){var d=S.drawer;var v=el.dataset.v;d.draft[el.dataset.k]=/^\d+$/.test(v)&&el.dataset.k==='pct'?+v:v;renderDrawer()};
 
 /* -- Vue d'ensemble -- */
-ACT.refreshHealth=function(b){run(b,'health',{},null,{ok:'Services actualisés',label:'Actualiser l\'état des services',after:function(res){DB.health=Object.keys(res.services||{}).map(function(key){var ok=res.services[key]==='ok';return {n:key.toUpperCase(),s:ok?'ok':'bad',d:ok?'Disponible':key==='r2'?'Binding R2 manquant':'Indisponible'}})}})};
+ACT.refreshHealth=function(b){run(b,'health',{},null,{ok:'Services actualisés',label:'Actualiser l\'état des services',after:function(res){DB.health=healthRows(res.services||{});GH_READY=(res.services||{}).github==='ok'}})};
 ACT.reloadState=function(){stateLoaded=false;stateLoadError='';loadLauncherState()};
 ACT.storageRefresh=function(b){
   if(CFG.simulate){toast('Mode simulation','Désactive la simulation pour lire le stockage R2.','err');return}
-  run(b,'storage',{},null,{ok:'Stockage R2 actualisé',after:function(res){DB.storage=res.storage||null}});
+  run(b,'storage',{},null,{ok:'Stockage actualisé',after:function(res){DB.storage=res.storage||null}});
 };
 ACT.storageDelete=async function(b){
   if(CFG.simulate){toast('Mode simulation','Désactive la simulation pour supprimer un artefact R2.','err');return}
   var title=b.dataset.title||b.dataset.id;
-  var detail=b.dataset.type==='orphan'?'Cet objet sera supprimé définitivement du stockage R2.':'« '+esc(title)+' » et sa signature seront supprimés définitivement du stockage R2.';
+  var t=b.dataset.type,detail=t==='orphan'?'Cet objet sera supprimé définitivement du stockage R2.':t==='release'?'« '+esc(title)+' » ne sera plus proposée aux joueurs. Une release GitHub reste sur GitHub ; une release envoyée dans R2 est effacée.':'« '+esc(title)+' » sera supprimé définitivement (fichier et signature)'+(t==='modpack'?', avec son archive overrides':'')+'.';
   if(!(await confirmBox({title:'Supprimer cet artefact ?',text:detail,ok:'Supprimer les fichiers',danger:true,word:'SUPPRIMER'})))return;
   run(b,'storageDelete',{type:b.dataset.type,id:b.dataset.id},{},{ok:function(res){return 'Artefact supprimé · '+formatStorageBytes(res.freedBytes||0)+' libérés'},target:title,after:function(){
     DB.storage=null;
@@ -5893,8 +5915,26 @@ ACT.kill=async function(b){var on=!DB.updates.kill;
 ACT.saveMin=function(b){var v=$('minVer').value.trim(),blk=$('minBlock').checked;
   if(!VER_RE.test(v)){toast('Version invalide','Format attendu : 1.9.0','err');return}
   run(b,'minVersion',{},{version:v,blockLaunch:blk},{ok:'Version minimale : '+v,target:DB.updates.minVersion+' → '+v,after:function(){DB.updates.minVersion=v;DB.updates.blockOld=blk}})};
-ACT.openRelease=function(){openDrawer({kind:'release',draft:{v:'',ch:'beta',file:'',size:'',sha:'',sig:'',notes:'',pct:10,mandatory:false,err:''}})};
+var GH_READY=false; /* vrai seulement si le Worker a un jeton GitHub (services.github === 'ok') */
+ACT.openRelease=function(){openDrawer({kind:'release',draft:{src:GH_READY?'github':'upload',gh:[],tag:'',githubLatest:false,v:'',ch:'beta',file:'',size:'',sha:'',sig:'',notes:'',pct:10,mandatory:false,err:''}});if(GH_READY)setTimeout(function(){ACT.ghLoad()},0)};
+ACT.ghLoad=async function(b){var d=S.drawer;if(!d||d.kind!=='release')return;var x=d.draft;x.ghErr='';
+  if(CFG.simulate){x.gh=[{tag:'v2.1.0',version:'2.1.0',draft:true,prerelease:false,size:98765432,hasSignature:true,hasSha256:true,createdAt:'exemple',body:'## Nouveautés\n- Exemple',imported:false}];x.tag='v2.1.0';x.notes=x.notes||x.gh[0].body;renderDrawer();return}
+  if(b)b.classList.add('busy');
+  try{var res=await window.apiFetch(ROUTES.releasesGithub[1],'GET');if(res&&res.error)throw new Error(res.error);
+    if(S.drawer!==d)return;x.gh=res.releases||[];x.repo=res.repo;var first=x.gh.filter(function(r){return !r.imported})[0];
+    if(!x.tag&&first){x.tag=first.tag;if(!x.notes)x.notes=first.body||''}
+    if(!x.gh.length)x.ghErr='aucune release contenant ReLaunch.exe.';
+  }catch(e){x.ghErr=e.message||String(e)}finally{if(b)b.classList.remove('busy');if(S.drawer===d)renderDrawer()}};
 ACT.releasePublish=async function(b){var x=S.drawer.draft,c=DB.channels[x.ch];x.err='';
+  if(x.src==='github'){var r=(x.gh||[]).filter(function(g){return g.tag===x.tag})[0];
+    if(!r)x.err='charge la liste et choisis une release GitHub.';else if(r.imported)x.err='cette release a déjà été publiée.';else if(!r.hasSignature||!r.hasSha256)x.err='la release ne contient pas ReLaunch.exe.sig et ReLaunch.exe.sha256 : relance la CI.';
+    else if(c.cur!=='—'&&cmpVer(r.version,c.cur)<=0&&r.version!==c.cur)x.err='la version doit être plus récente que '+c.cur+', la version actuelle du canal.';
+    if(x.err){renderDrawer();return}
+    if(x.ch==='stable'&&!(await confirmBox({title:'Publier '+r.version+' en stable ?',text:'Elle sera proposée à '+x.pct+' % des joueurs du canal stable. La release GitHub '+esc(r.tag)+' devient téléchargeable.',ok:'Publier',danger:true,word:r.version})))return;
+    run(b,'releaseFromGithub',{},{tag:r.tag,channel:x.ch,rollout:+x.pct,mandatory:x.mandatory,notes:x.notes,githubLatest:x.githubLatest===true},{ok:'ReLaunch '+r.version+' publiée en '+CH_LABEL[x.ch].toLowerCase(),target:r.tag+' · '+CH_LABEL[x.ch].toLowerCase(),close:true,after:function(res){
+      var release=res.release||{};DB.releases.unshift({v:r.version,ch:x.ch,date:new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}),sig:true,size:sizeOf(r.size),sha:release.sha256||'',crash:0,status:+x.pct>=100?'live':'deploying',notes:x.notes});
+      c.prev=c.cur;c.cur=r.version;c.rollout=+x.pct;c.paused=false;c.adoption=0;c.crash=0}});
+    return}
   if(!VER_RE.test(x.v))x.err='la version doit suivre le format 2.1.1 ou 2.1.1-beta.1.';
   else if(cmpVer(x.v,c.cur)<=0&&x.v!==c.cur)x.err='la version doit être plus récente que '+c.cur+', la version actuelle du canal.';
   else if(DB.releases.some(function(r){return r.v===x.v}))x.err='la version '+x.v+' existe déjà.';
@@ -5980,6 +6020,22 @@ ACT.lskinSave=function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);
   run(b,nw?'lskinCreate':'lskinSave',{id:d.id},payload,{ok:'Skin « '+(x.n||k.n)+' » enregistré',target:x.n||k.n,close:true,after:function(res){
     if(nw){var record=res.record||{};DB.lskins.push(Object.assign({id:res.id,n:x.n,owners:0},record,{id:res.id,how:how,price:x.uShop?+x.price:0,lg:x.lg,mat:x.mat,themed:x.themed==='1'||x.themed===true}))}
     else{k.status=x.status;k.how=how;k.price=x.uShop?+x.price:0;k.lg=x.lg;k.mat=x.mat;k.themed=x.themed==='1'||x.themed===true}}})};
+ACT.lskinUpload=async function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);x.fileErr='';
+  if(!VER_RE.test(x.fver||''))x.fileErr='la version du fichier doit suivre le format 1.0.0.';
+  else if(x.file&&x.file.version&&cmpVer(x.fver,x.file.version)<=0)x.fileErr='la version doit être plus récente que '+x.file.version+'.';
+  else if(!x.upFile)x.fileErr='choisis l’archive .rlskin.';else if(!x.upSigFile)x.fileErr='joins la signature de l’archive.';
+  else if(exceedsStorageQuota(x.upFile,x.upSigFile))x.fileErr='cet envoi dépasserait le quota R2 de 10 Go.';
+  if(x.fileErr){renderDrawer();return}
+  var form=new FormData();form.append('metadata',JSON.stringify({version:x.fver,sha256:x.upSha}));form.append('file',x.upFile,x.upFile.name);form.append('signature',x.upSigFile,x.upSigFile.name);
+  run(b,'lskinFile',{id:k.id},form,{ok:'Fichier v'+x.fver+' de « '+k.n+' » publié',target:k.n+' · v'+x.fver,after:function(res){
+    var f=res.file||{id:k.id+'_'+x.fver,version:x.fver,sha256:x.upSha,size:x.upFile.size};k.file=f;x.file=f;x.upFile=null;x.upSigFile=null;x.upName='';x.upSig='';x.upSha='';x.fver='';
+    if(!CFG.simulate){DB.storage=null;setTimeout(function(){ACT.storageRefresh()},0)}}})};
+ACT.lskinFileRemove=async function(b){var d=S.drawer,x=d.draft,k=byId(DB.lskins,d.id);
+  if(!(await confirmBox({title:'Retirer le fichier de « '+esc(k.n)+' » ?',text:'Les launchers ne pourront plus l’installer. Les joueurs qui l’ont déjà le gardent. Le fichier reste dans le stockage : supprime-le ensuite depuis « Stockage » si besoin.',ok:'Retirer',danger:true})))return;
+  run(b,'lskinFileRemove',{id:k.id},{},{ok:'Fichier de « '+k.n+' » retiré',target:k.n,after:function(){k.file=null;x.file=null}})};
+FILE.lskinFile=async function(f){var x=S.drawer.draft;if(f.size>40*1048576){toast('Archive trop lourde','40 Mo maximum.','err');return}
+  x.upFile=f;x.upName=f.name;x.upSize=sizeOf(f.size);x.upSha='';x.upSigFile=null;x.upSig='';renderDrawer();try{x.upSha=await sha256(f)}catch(e){x.upFile=null;toast('Empreinte impossible',e.message,'err')}renderDrawer()};
+FILE.lskinSig=function(f){var x=S.drawer.draft;x.upSig=f.name;x.upSigFile=f;renderDrawer()};
 ACT.openGrant=function(){openDrawer({kind:'grant',draft:{player:'',skin:DB.lskins[0]?.id||'',reason:'',err:''}})};
 ACT.grantSave=function(b){var x=S.drawer.draft,k=byId(DB.lskins,x.skin);x.err='';
   if(!x.player.trim())x.err='indique le pseudo ou l\'identifiant ReLink du joueur.';else if(!x.reason.trim())x.err='indique un motif.';
@@ -5991,18 +6047,35 @@ ACT.grantSave=function(b){var x=S.drawer.draft,k=byId(DB.lskins,x.skin);x.err=''
 ACT.packVisible=function(b){var m=DB.modpacks[+b.dataset.i];if(!m.visible&&!m.sig){toast('Manifest non signé','Publie une version signée avant d\'afficher '+m.n+'.','err');return}
   run(b,'modpackSave',{id:m.id},{visible:!m.visible},{ok:m.n+(m.visible?' masqué':' visible dans WeCraft'),target:m.n,after:function(){m.visible=!m.visible}})};
 ACT.packVerify=function(b){var m=DB.modpacks[+b.dataset.i];run(b,'modpackVerify',{id:m.id},{},{ok:'Manifest de '+m.n+' vérifié',target:m.n+' '+m.ver,after:function(){m.sig=true}})};
-ACT.openPack=function(b){var m=byId(DB.modpacks,b.dataset.id);openDrawer({kind:'pack',id:m.id,draft:{ver:'',loader:m.loader,file:'',size:'',sha:'',sig:'',changelog:'',mandatory:false,err:''}})};
+ACT.openPack=function(b){var m=byId(DB.modpacks,b.dataset.id);openDrawer({kind:'pack',id:m.id,draft:{summary:null,file:'',size:'',sha:'',sig:'',changelog:'',mandatory:false,err:''}})};
 ACT.openNewPack=function(){openDrawer({kind:'packCreate',draft:{n:'',mc:'',loader:'',description:'',err:''}})};
 ACT.packCreate=function(b){var d=S.drawer,x=d.draft;x.err='';
   if(!x.n.trim())x.err='indique le nom du modpack.';else if(!x.mc.trim())x.err='indique la version Minecraft.';else if(!x.loader.trim())x.err='indique le loader.';
   if(x.err){renderDrawer();return}
   run(b,'modpackCreate',{}, {n:x.n.trim(),mc:x.mc.trim(),loader:x.loader.trim(),description:x.description.trim()},{ok:x.n+' créé',target:x.n,close:true,after:function(res){
     DB.modpacks.push(Object.assign({id:res.id,n:x.n,mc:x.mc,loader:x.loader,ver:'0.0.0',mods:0,size:'—',sig:false,visible:false,installs:0,c1:'#334155',c2:'#94a3b8'},res.record||{},{id:res.id}))}})};
-ACT.packPublish=function(b){var d=S.drawer,x=d.draft,m=byId(DB.modpacks,d.id);x.err='';
-  if(!VER_RE.test(x.ver))x.err='la version doit suivre le format 3.2.1.';else if(cmpVer(x.ver,m.ver)<=0)x.err='la version doit être plus récente que '+m.ver+'.';  else if(!x.uploadFile)x.err='choisis le manifest.';else if(!x.signatureFile)x.err='joins la signature du manifest.';else if(exceedsStorageQuota(x.uploadFile,x.signatureFile))x.err='cet upload dépasserait le quota R2 de 10 Go. Supprime d’abord des artefacts dans Stockage R2.';
+ACT.packPublish=function(b){var d=S.drawer,x=d.draft,m=byId(DB.modpacks,d.id),s=x.summary;x.err='';
+  if(!x.uploadFile||!s)x.err=x.manifestErr||'choisis le manifeste relaunch-pack.';
+  else if(s.id!==m.id)x.err='pack.id du manifeste vaut « '+s.id+' » au lieu de « '+m.id+' ».';
+  else if(!VER_RE.test(s.version))x.err='pack.version doit suivre le format 3.2.1.';
+  else if(m.ver!=='—'&&cmpVer(s.version,m.ver)<=0)x.err='la version doit être plus récente que '+m.ver+'.';
+  else if(!x.signatureFile)x.err='joins la signature du manifeste.';
+  else if(s.overrides&&(!x.ovFile||!x.ovSigFile))x.err='le manifeste annonce une archive overrides : joins overrides.zip et sa signature.';
+  else if(s.overrides&&x.ovSha!==s.overrides.sha256)x.err='overrides.zip ne correspond pas à l’empreinte du manifeste.';
+  else if(exceedsStorageQuota(x.uploadFile,x.signatureFile))x.err='cet upload dépasserait le quota R2 de 10 Go. Supprime d’abord des fichiers dans Stockage.';
   if(x.err){renderDrawer();return}
-  var form=new FormData();form.append('metadata',JSON.stringify({version:x.ver,loader:x.loader,sha256:x.sha,changelog:x.changelog,mandatory:x.mandatory}));form.append('file',x.uploadFile,x.uploadFile.name);form.append('signature',x.signatureFile,x.signatureFile.name);
-  run(b,'modpackVersion',{id:m.id},form,{ok:m.n+' '+x.ver+' publié',target:m.n+' · '+m.ver+' → '+x.ver,close:true,after:function(){m.ver=x.ver;m.loader=x.loader;m.sig=true;if(!CFG.simulate){DB.storage=null;setTimeout(function(){ACT.storageRefresh()},0)}}})};
+  var form=new FormData();form.append('metadata',JSON.stringify({version:s.version,sha256:x.sha,changelog:x.changelog,mandatory:x.mandatory}));form.append('file',x.uploadFile,x.uploadFile.name);form.append('signature',x.signatureFile,x.signatureFile.name);
+  if(s.overrides){form.append('overrides',x.ovFile,x.ovFile.name);form.append('overridesSignature',x.ovSigFile,x.ovSigFile.name)}
+  run(b,'modpackVersion',{id:m.id},form,{ok:m.n+' '+s.version+' publié',target:m.n+' · '+m.ver+' → '+s.version,close:true,after:function(){m.ver=s.version;m.loader=s.loader;m.mc=s.mc;m.mods=s.mods;m.size=formatStorageBytes(s.size);m.sig=true;if(!CFG.simulate){DB.storage=null;setTimeout(function(){ACT.storageRefresh()},0)}}})};
+/* Lecture locale du manifeste : simple aperçu, le Worker refait toutes les vérifications. */
+function packSummary(j){
+  if(!j||j.format!=='relaunch-pack'||j.formatVersion!==1)throw new Error('ce fichier n’est pas un manifeste relaunch-pack v1.');
+  var p=j.pack||{},l=j.loader||{},files=Array.isArray(j.files)?j.files:[];
+  return {id:p.id,version:p.version,mc:j.minecraft,loader:l.type+(l.version?' '+l.version:''),files:files.length,
+    mods:files.filter(function(f){return String(f.path||'').indexOf('mods/')===0&&f.side!=='server'}).length,
+    size:files.reduce(function(n,f){return n+(+f.size||0)},0)+(j.overrides?+j.overrides.size||0:0),
+    overrides:j.overrides?{sha256:String(j.overrides.sha256||'').toLowerCase(),size:+j.overrides.size||0}:null};
+}
 
 /* -- Serveurs -- */
 ACT.srvMaint=async function(b){var s=DB.servers[+b.dataset.i],on=b.dataset.v==='1';
@@ -6054,7 +6127,14 @@ async function sha256(file){var buf=await file.arrayBuffer();var h=await crypto.
 function sizeOf(n){return n>1048576?(n/1048576).toFixed(1).replace('.',',')+' Mo':Math.max(1,Math.round(n/1024))+' Ko'}
 async function hashInto(file,x){x.signatureFile=null;x.sig='';if(file.size>94*1048576){x.uploadFile=null;x.file='';x.sha='';toast('Fichier trop lourd','94 Mio maximum.','err');renderDrawer();return}x.file=file.name;x.uploadFile=file;x.size=sizeOf(file.size);x.sha='';renderDrawer();try{x.sha=await sha256(file)}catch(e){x.uploadFile=null;toast('Empreinte impossible',e.message,'err')}renderDrawer()}
 FILE.relFile=function(f){hashInto(f,S.drawer.draft)};
-FILE.packFile=function(f){hashInto(f,S.drawer.draft)};
+FILE.packFile=async function(f){var x=S.drawer.draft;x.summary=null;x.manifestErr='';x.err='';
+  if(f.size>2*1048576){toast('Manifeste trop lourd','2 Mio maximum.','err');return}
+  await hashInto(f,x);
+  try{x.summary=packSummary(JSON.parse(await f.text()))}catch(e){x.manifestErr='manifeste illisible : '+(e.message||e);x.err=x.manifestErr}
+  renderDrawer()};
+FILE.packOv=async function(f){var x=S.drawer.draft;if(f.size>90*1048576){toast('Archive trop lourde','90 Mio maximum.','err');return}
+  x.ovFile=f;x.ovName=f.name;x.ovSize=sizeOf(f.size);x.ovSha='';x.ovSigFile=null;x.ovSig='';renderDrawer();try{x.ovSha=await sha256(f)}catch(e){x.ovFile=null;toast('Empreinte impossible',e.message,'err')}renderDrawer()};
+FILE.packOvSig=function(f){var x=S.drawer.draft;x.ovSig=f.name;x.ovSigFile=f;renderDrawer()};
 FILE.relSig=function(f){S.drawer.draft.sig=f.name;S.drawer.draft.signatureFile=f;renderDrawer()};
 FILE.packSig=function(f){S.drawer.draft.sig=f.name;S.drawer.draft.signatureFile=f;renderDrawer()};
 FILE.cardImg=function(f){
@@ -6096,7 +6176,7 @@ function applyLauncherState(state){
   DB.cards=list('home_cards').filter(function(item){return !item.archived}).map(function(item){return Object.assign({type:'event',tags:'',title:'',sub:'',c1:'#7c2d12',c2:'#f59e0b',dest:'relaunch',cta:'Voir',status:'draft',from:'',to:'',aud:'all',img:''},item)});
   DB.news=list('news').map(function(item){return Object.assign({tags:'',date:'',views:0,body:''},item)});
   DB.lskins=list('skins').map(function(item){var u=item.unlock||{},v=item.versions||{};return Object.assign({},item,{n:item.n||item.name||item.id,how:[u.event&&'event',u.achievement&&'ach',u.shop&&'shop'].filter(Boolean).join('+')||(u.premium?'premium':'free'),price:typeof u.shop==='number'?u.shop:0,lg:v.liquidGlass===true,mat:v.mat===true,themed:item.followsTheme===true,owners:item.owners||0})});
-  DB.modpacks=list('modpacks').map(function(item){return Object.assign({n:item.n||item.name||item.id,mc:item.mc||'—',ver:item.version||item.ver||'—',mods:item.mods||0,size:item.size?sizeOf(item.size):'—',sig:item.sig===true,visible:item.visible===true,installs:item.installs||0,c1:'#334155',c2:'#94a3b8'},item)});
+  DB.modpacks=list('modpacks').map(function(item){return Object.assign({n:item.n||item.name||item.id,mc:item.mc||'—',ver:item.version||item.ver||'—',mods:item.mods||0,sig:item.sig===true,visible:item.visible===true,installs:item.installs||0,c1:'#334155',c2:'#94a3b8'},item,{size:item.sizeBytes?formatStorageBytes(item.sizeBytes):typeof item.size==='number'?sizeOf(item.size):item.size||'—'})});
   DB.servers=list('servers').map(function(item){return Object.assign({n:item.n||item.name||item.id,host:item.host||'',state:'offline',players:0,max:0,pack:'',event:''},item)});
   DB.events=list('events').map(function(item){return Object.assign({n:item.n||item.name||item.id,date:'',server:'',pack:'',slots:0,state:'draft',desc:'',apps:[]},item)});
   DB.partners=list('partners').map(function(item){return Object.assign({n:item.n||item.name||item.id,ch:'',cat:'',featured:false,live:false,viewers:0},item)});
@@ -6106,8 +6186,12 @@ function applyLauncherState(state){
     history:revisions.map(function(r){return {v:r.version,t:r.createdAt||'',who:r.actorId||'—',d:'Configuration publiée'}})};
   DB.notifs=(state.notifications||[]).map(function(n){return {t:n.createdAt||n.sendAt||'',title:n.title||'',aud:n.audience||'',sent:0,open:0,status:n.status}});
   DB.launcherMetrics=state.metrics||{};
-  DB.health=Object.keys(state.services||{}).map(function(key){var ok=state.services[key]==='ok';return {n:key.toUpperCase(),s:ok?'ok':'bad',d:ok?'Disponible':key==='r2'?'Binding R2 manquant':'Indisponible'}});
+  DB.health=healthRows(state.services||{});
+  GH_READY=(state.services||{}).github==='ok';
 }
+function healthRows(sv){return Object.keys(sv).filter(function(key){return key!=='releasesRepo'}).map(function(key){
+  if(key==='storage')return {n:'STOCKAGE',s:sv.storage==='unconfigured'?'bad':'ok',d:sv.storage==='github'?'Fichiers dans GitHub':sv.storage==='r2'?'Fichiers dans R2 (10 Go)':'GitHub demandé, secrets manquants'};
+  var ok=sv[key]==='ok';return {n:key.toUpperCase(),s:ok?'ok':'bad',d:ok?'Disponible':key==='r2'?'Binding R2 manquant':'Indisponible'}}).filter(function(r){return !(r.n==='GITHUB'&&r.s==='bad'&&sv.storage==='r2')})}
 async function loadLauncherState(){
   if(CFG.simulate||stateLoaded||stateLoading)return;
   stateLoading=true;stateLoadError='';
