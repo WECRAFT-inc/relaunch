@@ -1,16 +1,19 @@
 {
   "slug": "relaunch",
   "name": "ReLaunch",
-  "description": "Site du launcher Minecraft ReLaunch",
+  "description": "Site du launcher Minecraft ReLaunch : présentation, events, actus, WeLive, partenaires et espace compte ReLink.",
+  "url": "https://wecraft-inc.github.io/relaunch/",
   "sections": [
-    { "key": "home", "label": "Accueil" },
-    { "key": "launcher", "label": "Launcher" },
-    { "key": "ecosysteme", "label": "Écosystème" },
-    { "key": "events", "label": "Events" },
-    { "key": "boutique", "label": "Boutique" },
-    { "key": "compte", "label": "Mon compte", "requires_auth": true }
+    { "key": "accueil", "label": "Accueil", "description": "Présentation du launcher, fonctionnalités, designs, FAQ" },
+    { "key": "events", "label": "Events", "description": "Calendrier et inscriptions aux events" },
+    { "key": "actus", "label": "Actus", "description": "Articles publiés (les mêmes que dans le launcher)" },
+    { "key": "welive", "label": "WeLive", "description": "Lives des partenaires et vidéos recommandées" },
+    { "key": "partenaires", "label": "Partenaires", "description": "Créateurs partenaires et formulaire de candidature" },
+    { "key": "compte", "label": "Mon espace", "description": "Connexion, création de compte et gestion du compte ReLink" },
+    { "key": "boutique", "label": "Boutique", "description": "Onglet Boutique et achat de skins dans Mon espace", "requires_auth": true },
+    { "key": "amis", "label": "Amis", "description": "Onglet Amis dans Mon espace", "requires_auth": true }
   ],
   "permissions": [
-    { "key": "relaunch.edit", "description": "Modifier le contenu du site ReLaunch", "default_roles": ["administrator"] }
+    { "key": "relaunch.edit", "description": "Mode édition du site ReLaunch (textes, FAQ, vidéos, bandeau, liens)", "default_roles": ["administrator"] }
   ]
 }
